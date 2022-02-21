@@ -24,5 +24,16 @@
 
 ## Coding
 
-Dataset: /mnt/DATA2/congvm/Affwild2
-Annotations: /mnt/DATA2/congvm/Affwild2/Annotations
++ Dataset: /mnt/DATA2/congvm/Affwild2 
++ Annotations: /mnt/DATA2/congvm/Affwild2/Annotations
+
+```
+python 0.preprocess-csv.py
+python 1.train.py
+```
+
+## Current Results
+
+| Models | n_hidden_2 | learning_rate | optimizer | Accuracy |
+| :----: | :--------: | :-----------: | :-------: | :------: |
+|        |            |               |           |          |
