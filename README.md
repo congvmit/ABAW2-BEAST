@@ -11,9 +11,13 @@
 
 + **Tasks**:
   1) Valence-Arousal (VA) Estimation Challenge
+      - Concordance Correlation Coefficient (CCC) of valence and arousal: P = 0.5 * (CCC_arousal + CCC_valence)
   2) Expression (Expr) Classification Challenge
+     - Average F1 Score across all 8 categories: P = ∑(F1)/8
   3) Action Unit (AU) Detection Challenge
+     - Average F1 Score across all 12 categories: P = ∑ (F1) / 12
   4) Multi-Task-Learning (MTL) Challenge
+     - P = 0.5 * (CCC_arousal + CCC_valence) + 0.125 * ∑ (F1_expr) + ∑ (F1_au) / 12
 
 ## Team information: 
 + Team Name: **BEAST**
@@ -34,6 +38,8 @@ python 1.train.py
 
 ## Current Results
 
-| Models | n_hidden_2 | learning_rate | optimizer | Accuracy |
-| :----: | :--------: | :-----------: | :-------: | :------: |
-|        |            |               |           |          |
+| Backbone |  Models  | $CCC_{v}@CCC_{a}@P_{VA}$ | $P_{exp}$ | $P_{au}$ | $P_{mtl}$ |
+| :------: | :------: | :----------------------: | :-------: | :------: | :-------: |
+| VGGFace  | Baseline |      0.31@0.17@0.24      |   0.23    |   0.39   |   0.86    |
+|          |          |                          |           |          |           |
+|          |          |                          |           |          |           |
