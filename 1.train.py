@@ -10,13 +10,10 @@ from utils.netmodule import AffWildLightningNet
 from utils.datamodule import AffWildDataModule
 
 from tqdm import tqdm
+from pprint import pprint
 
 if version.parse(pl.__version__) < version.parse("1.0.2"):
     raise RuntimeError("PyTorch Lightning>=1.0.2 is required for this example.")
-
-# PERCENT_VALID_EXAMPLES = 0.5
-# EPOCHS = 1
-DATA_DIR = "/home/lab/congvm/Affwild2"
 
 
 class Experiment:
@@ -32,7 +29,9 @@ class Experiment:
         model = AffWildLightningNet(
             model_name=model_name, optimizer_name=optimizer_name, lr=lr
         )
-        datamodule = AffWildDataModule(data_dir=DATA_DIR, batch_size=batch_size)
+        datamodule = AffWildDataModule(
+            data_dir=self.args.data_dir, batch_size=batch_size
+        )
 
         trainer = pl.Trainer(
             accelerator="gpu",
@@ -79,18 +78,21 @@ class Experiment:
         # output_dims = [
         #     trial.suggest_int("n_units_l{}".format(i), 4, 128, log=True) for i in range(n_layers)
         # ]
-        EPOCHS = 10
-        batch_size = trial.suggest_categorical("batch_size", choices=[16, 32, 64, 128])
+        batch_size = trial.suggest_categorical(
+            "batch_size", choices=[16, 32, 64, 128, 256, 512]
+        )
         optimizer_name = trial.suggest_categorical(
             "optimizer_name", choices=["sgd", "adam"]
         )
         lr = trial.suggest_float("lr", 2e-5, 2e-3)
-        model_name = "alternet_18"
+        model_name = "simplemlp"
 
         model = AffWildLightningNet(
             model_name=model_name, optimizer_name=optimizer_name, lr=lr
         )
-        datamodule = AffWildDataModule(data_dir=DATA_DIR, batch_size=batch_size)
+        datamodule = AffWildDataModule(
+            data_dir=self.args.data_dir, batch_size=batch_size
+        )
 
         trainer = pl.Trainer(
             accelerator="gpu",
@@ -120,6 +122,7 @@ class Experiment:
             lr=lr,
         )
         trainer.logger.log_hyperparams(hyperparameters)
+        pprint(hyperparameters)
         trainer.fit(model, datamodule=datamodule)
 
         return trainer.callback_metrics["val_loss"].item()
@@ -127,6 +130,7 @@ class Experiment:
 
 def debug_dataset():
     BATCH_SIZE = 32
+    DATA_DIR = "/home/lab/congvm/Affwild2"
     data_module = AffWildDataModule(data_dir=DATA_DIR, batch_size=BATCH_SIZE)
     data_module.setup(stage="fit")
 
@@ -157,13 +161,20 @@ def get_args():
     parser.add_argument("--debug-dataset", action="store_true")
     parser.add_argument("-m", "--manual", action="store_true")
 
+    # DATA_DIR = "/home/lab/congvm/Affwild2"
+    parser.add_argument("--data-dir", type=str, default="/home/lab/congvm/Affwild2")
+    parser.add_argument(
+        "--model-name", type=str, default="simplemlp", choices=["simplemlp"]
+    )
+    parser.add_argument(
+        "--feature-name", type=str, default="arcface", choices=["arcface", "vggface"]
+    )
     # Manual
     parser.add_argument("--seed", type=int, default=2022)
-    parser.add_argument("--epochs", type=int, default=10)
+    parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--optimizer", type=str, default="adam")
     parser.add_argument("--lr", type=float, default=0.001)
-    parser.add_argument("--model-name", type=str, default="alternet_18")
     args = parser.parse_args()
     return args
 

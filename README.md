@@ -32,9 +32,14 @@
 + Annotations: /mnt/DATA2/congvm/Affwild2/Annotations
 
 ```
-python 0.preprocess-csv.py
+python 0.preprocess.py
 python 1.train.py
 ```
+
+## Plans
+
+[ ] Remove non-face regions
+[ ] Test metrics
 
 ## Current Results
 

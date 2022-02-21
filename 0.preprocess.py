@@ -92,10 +92,10 @@ reg_model = None
 
 if EXTRACT_FEATS:
     # Load face model
-    from thirdparty import insightface
+    from thirdparty import insightface_inference
     import cv2
 
-    reg_model = insightface.model_zoo.get_model(
+    reg_model = insightface_inference.model_zoo.get_model(
         REG_MODEL_PATH,
         providers=["CUDAExecutionProvider"],
         provider_options=["CUDAExecutionProvider"],
