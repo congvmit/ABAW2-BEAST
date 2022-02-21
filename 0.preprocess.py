@@ -9,18 +9,44 @@ import cv2
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
-challenge_names = [
-    "AU_Detection_Challenge",
-    "EXPR_Classification_Challenge",
-    "MTL_Challenge",
-    "VA_Estimation_Challenge",
-]
+from numpy.linalg import norm as l2norm
+
+
+# %%
+import argparse
+
+parser = argparse.ArgumentParser(description="Preprocessing")
+parser.add_argument("--no-extract-feats", action="store_true")
+parser.add_argument(
+    "--challenge-name",
+    type=str,
+    default="mtl",
+    choices=["au", "exp", "mtl", "va", "all"],
+)
+args = parser.parse_args()
+# %%
+if args.challenge_name == "mtl":
+    challenge_names = ["MTL_Challenge"]
+elif args.challenge_name == "au":
+    challenge_names = ["AU_Detection_Challenge"]
+elif args.challenge_name == "exp":
+    challenge_names = ["EXPR_Classification_Challenge"]
+elif args.challenge_name == "va":
+    challenge_names = ["VA_Estimation_Challenge"]
+else:
+    challenge_names = [
+        "AU_Detection_Challenge",
+        "EXPR_Classification_Challenge",
+        "MTL_Challenge",
+        "VA_Estimation_Challenge",
+    ]
 
 # challenge_cols = ['AU_Detection_Cha']
 splits = ["Train_Set", "Validation_Set"]
 
 PATH = "/mnt/DATA2/congvm/Affwild2/Annotations/"
 CROP_PATHS = "/mnt/DATA2/congvm/Affwild2/cropped_aligned/"
+
 EMOTION_MAP = {
     -1: "Ignored",
     0: "Neutral",
@@ -33,7 +59,8 @@ EMOTION_MAP = {
     7: "Other",
 }
 
-
+EXTRACT_FEATS = not args.no_extract_feats
+REG_MODEL_PATH = "ckpts/models/buffalo_l/w600k_r50.onnx"
 # %%
 def read_txt(path):
     with open(path, "r") as f:
@@ -47,12 +74,35 @@ def load_image(img_path):
     return cv2.cvtColor(img_arr, cv2.COLOR_BGR2RGB)
 
 
+def normed_embedding(embedding):
+    return embedding / l2norm(embedding)
+
+
+def get_facial_features(reg_model, img_arr):
+    features = normed_embedding(reg_model.get_feat(img_arr).flatten())
+    return features
+
+
 # %%
 # Load Training
 fails = {}
 success = {}
 
-challenge_names = ["MTL_Challenge"]
+reg_model = None
+
+if EXTRACT_FEATS:
+    # Load face model
+    from thirdparty import insightface
+    import cv2
+
+    reg_model = insightface.model_zoo.get_model(
+        REG_MODEL_PATH,
+        providers=["CUDAExecutionProvider"],
+        provider_options=["CUDAExecutionProvider"],
+    )
+    reg_model.prepare(ctx_id=0)
+
+# %%
 for chname in challenge_names:
     if chname == "AU_Detection_Challenge":
         raise NotImplementedError
@@ -163,12 +213,21 @@ for chname in challenge_names:
             assert len(video_ids) == len(data)
             anno_data = []
             missing_paths = []
-            for vid, fid, d in zip(video_ids, frame_ids, data):
+            features_data = []
+
+            for vid, fid, d in tqdm(
+                zip(video_ids, frame_ids, data), total=len(video_ids)
+            ):
                 img_path = os.path.join(*[CROP_PATHS, vid, fid])
 
                 if not os.path.isfile(img_path):
                     missing_paths.append(img_path)
                     continue
+
+                if EXTRACT_FEATS and reg_model is not None:
+                    img_arr = load_image(img_path)
+                    features = get_facial_features(reg_model, img_arr)
+                    features_data.append(features)
 
                 _d = [vid, fid]
                 _d.extend(d[1:])
@@ -177,4 +236,20 @@ for chname in challenge_names:
                 f"{split.upper()}: Cannot find {len(missing_paths)} paths ({len(missing_paths)/len(video_ids)})"
             )
             df = pd.DataFrame(anno_data, columns=cols_names)
-            df.to_csv(f"/mnt/DATA2/congvm/Affwild2/mtl_{split}_anno.csv", index=False)
+
+            csv_path_to_save = f"/mnt/DATA2/congvm/Affwild2/mtl_{split}_anno.csv"
+            df.to_csv(csv_path_to_save, index=False)
+            print(f"CSV file is saved at {csv_path_to_save}")
+
+            if EXTRACT_FEATS:
+                features_data = np.stack(features_data)
+                print("Facial features shape :", features_data.shape)
+                numpy_path_to_save = (
+                    f"/mnt/DATA2/congvm/Affwild2/mtl_{split}_arcface_feats.npy"
+                )
+                print(f"NUMPY features file is saved at {numpy_path_to_save}")
+                np.save(
+                    numpy_path_to_save,
+                    features_data,
+                    allow_pickle=True,
+                )

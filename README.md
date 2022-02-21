@@ -43,3 +43,16 @@ python 1.train.py
 | VGGFace  | Baseline |      0.31@0.17@0.24      |   0.23    |   0.39   |   0.86    |
 |          |          |                          |           |          |           |
 |          |          |                          |           |          |           |
+
+
+
+## Deep Face Recognition Models
+
+To extract deep facial features, we use `ResNet50@WebFace600K` from `insightface` package.
+
+Recognition Accuracy:
+
+| Name          | Recognition Model    | MR-ALL | African | Caucasian | South Asian | East Asian | LFW   | CFP-FP | AgeDB-30 | IJB-C(E4) |
+| :------------ | -------------------- | ------ | ------- | --------- | ----------- | ---------- | ----- | ------ | -------- | --------- |
+| **buffalo_l** | ResNet50@WebFace600K | 91.25  | 90.29   | 94.70     | 93.16       | 74.96      | 99.83 | 99.33  | 98.23    | 97.25     |
+| buffalo_s     | MBF@WebFace600K      | 71.87  | 69.45   | 80.45     | 73.39       | 51.03      | 99.70 | 98.00  | 96.58    | 95.02     |
