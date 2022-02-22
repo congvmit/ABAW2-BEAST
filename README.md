@@ -39,6 +39,7 @@ python 1.train.py
 ## Plans
 
 [ ] Remove non-face regions
+[ x ] Wrapup Arcface Model with pretrained weights
 [ ] Test metrics
 
 ## Current Results
@@ -61,3 +62,6 @@ Recognition Accuracy:
 | :------------ | -------------------- | ------ | ------- | --------- | ----------- | ---------- | ----- | ------ | -------- | --------- |
 | **buffalo_l** | ResNet50@WebFace600K | 91.25  | 90.29   | 94.70     | 93.16       | 74.96      | 99.83 | 99.33  | 98.23    | 97.25     |
 | buffalo_s     | MBF@WebFace600K      | 71.87  | 69.45   | 80.45     | 73.39       | 51.03      | 99.70 | 98.00  | 96.58    | 95.02     |
+
+
+Arcface CKPT: https://mega.nz/folder/ue52EJjS#laGVRDtos_rWuX6L6lzuYQ

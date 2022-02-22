@@ -48,8 +48,12 @@ class SimpleMLP(nn.Module):
         self.dense_val = nn.Linear(in_features, 1)
         self.dense_au = nn.Linear(in_features, 12)
         self.dense_exp = nn.Linear(in_features, 8)
+        self.dropout = nn.Dropout(0.2)
+        self.relu = nn.ReLU()
 
     def forward(self, x):
+        x = self.relu(x)
+        x = self.dropout(x)
         x_exp = self.dense_exp(x)
         x_aro = self.dense_aro(x)
         x_val = self.dense_val(x)
@@ -71,7 +75,7 @@ class AffWildNet(nn.Module):
         return y_exp, y_aro, y_val, y_au
 
 
-class AffWildLightningNet(pl.LightningModule):
+class MTL_Static_LightningNet(pl.LightningModule):
     def __init__(self, model_name, optimizer_name, lr):
         super().__init__()
         self.model_name = model_name

@@ -6,7 +6,7 @@ from packaging import version
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 
-from utils.netmodule import AffWildLightningNet
+from utils.mtl_netmodule import MTL_Static_LightningNet
 from utils.datamodule import AffWildDataModule
 
 from tqdm import tqdm
@@ -26,7 +26,7 @@ class Experiment:
         optimizer_name = self.args.optimizer
         lr = self.args.lr
         model_name = self.args.model_name  #'alternet_18'
-        model = AffWildLightningNet(
+        model = MTL_Static_LightningNet(
             model_name=model_name, optimizer_name=optimizer_name, lr=lr
         )
         datamodule = AffWildDataModule(
@@ -87,7 +87,7 @@ class Experiment:
         lr = trial.suggest_float("lr", 2e-5, 2e-3)
         model_name = "simplemlp"
 
-        model = AffWildLightningNet(
+        model = MTL_Static_LightningNet(
             model_name=model_name, optimizer_name=optimizer_name, lr=lr
         )
         datamodule = AffWildDataModule(
@@ -97,8 +97,6 @@ class Experiment:
         trainer = pl.Trainer(
             accelerator="gpu",
             logger=True,
-            # limit_val_batches=PERCENT_VALID_EXAMPLES,
-            enable_checkpointing=True,
             max_epochs=self.args.epochs,
             auto_select_gpus=True,
             gpus=1,
