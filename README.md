@@ -28,6 +28,31 @@
 
 ## Coding
 
+Code Structure (in `utils` folder):
+```bash
+.
+├── abaw_models.py          # Define compo
+├── mtl_netmodule.py        # Define MTL train/val/test procedure
+├── au_netmodule.py         # Define AU train/val/test procedure
+├── exp_netmodule.py        # Define EXP train/val/test procedure
+├── datamodule.py           # Dataset and Dataloader
+├── losses.py               # Define loss funtions
+├── metrics.py              # Define metric functions
+├── transforms.py
+└── utils.py
+└── schedulers.py
+├── backbones
+│   ├── alexnet_dnn_block.py
+│   ├── alexnet_mcdo_block.py
+│   ├── alexnet.py
+│   ├── alternet.py
+│   ├── attentions.py
+│   ├── cbamresnet_dnn_block.py
+│   ├── cbamresnet_mcdo_block.py
+│   ├── cbamresnet.py
+│   ├── ...
+
+```
 + Dataset: /mnt/DATA2/congvm/Affwild2 
 + Annotations: /mnt/DATA2/congvm/Affwild2/Annotations
 
@@ -36,11 +61,16 @@ python 0.preprocess.py
 python 1.train.py
 ```
 
+
 ## Plans
 
-[ ] Remove non-face regions
-[ x ] Wrapup Arcface Model with pretrained weights
-[ ] Test metrics
+- [ ] Remove non-face regions 
+- [x] Wrapup Arcface Model with pretrained weights 
+- [x] Add EXP Metric 
+- [x] Add AU Metric 
+- [ ] Add VA Metric
+- [ ] Add MTL Metric
+- [ ] Add CCC Loss
 
 ## Current Results
 
@@ -64,4 +94,8 @@ Recognition Accuracy:
 | buffalo_s     | MBF@WebFace600K      | 71.87  | 69.45   | 80.45     | 73.39       | 51.03      | 99.70 | 98.00  | 96.58    | 95.02     |
 
 
-Arcface CKPT: https://mega.nz/folder/ue52EJjS#laGVRDtos_rWuX6L6lzuYQ
+To download arcface checkpoints:
+- Arcface CKPT: https://mega.nz/folder/ue52EJjS#laGVRDtos_rWuX6L6lzuYQ
+
+Checkpoint to load:
+- Arcface Pretrained Model: ckpts/glint360k_cosface_r50_fp16_0.1_backbone.pth

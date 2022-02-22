@@ -1,6 +1,3 @@
-from . import models
-from sklearn.metrics import accuracy_score
-
 import pytorch_lightning as pl
 import torch
 from torch import nn
@@ -9,6 +6,7 @@ from torch import optim
 import numpy as np
 from .losses import MaskedBCEWithLogitsLoss, MaskedCrossEntropyLoss, MaskedMSELoss
 from sklearn.metrics import f1_score
+from .abaw_models import MTL_ClassifierMLP, ArcFaceIRes50
 
 
 def compute_f1_score_au(input, target):
@@ -20,71 +18,22 @@ def compute_f1_score_au(input, target):
     return np.mean(f1s)
 
 
-# from models.classifier_block import MTLBlock
-class MTLBlock(nn.Module):
-    def __init__(self, in_features, num_classes=None, **kwargs):
-        super(MTLBlock, self).__init__()
-        self.gap = nn.AdaptiveAvgPool2d((1, 1))
-        self.dense_aro = nn.Linear(in_features, 1)
-        self.dense_val = nn.Linear(in_features, 1)
-        self.dense_au = nn.Linear(in_features, 12)
-        self.dense_exp = nn.Linear(in_features, 8)
-
-    def forward(self, x):
-        x = self.gap(x)
-        x = x.view(x.size()[0], -1)
-        x_exp = self.dense_exp(x)
-        x_aro = self.dense_aro(x)
-        x_val = self.dense_val(x)
-        x_au = self.dense_au(x)
-        return x_exp, x_aro, x_val, x_au
-
-
-class SimpleMLP(nn.Module):
-    def __init__(self, in_features=512):
-        super(SimpleMLP, self).__init__()
-        self.in_features = in_features
-        self.dense_aro = nn.Linear(in_features, 1)
-        self.dense_val = nn.Linear(in_features, 1)
-        self.dense_au = nn.Linear(in_features, 12)
-        self.dense_exp = nn.Linear(in_features, 8)
-        self.dropout = nn.Dropout(0.2)
-        self.relu = nn.ReLU()
-
-    def forward(self, x):
-        x = self.relu(x)
-        x = self.dropout(x)
-        x_exp = self.dense_exp(x)
-        x_aro = self.dense_aro(x)
-        x_val = self.dense_val(x)
-        x_au = self.dense_au(x)
-        return x_exp, x_aro, x_val, x_au
-
-
-class AffWildNet(nn.Module):
-    def __init__(self, model_name="alternet_18"):
+class MTL_StaticLightningNet(pl.LightningModule):
+    def __init__(self, backbone_name, classifier_name, optimizer_name, lr, dropout=0.2):
         super().__init__()
-        cblock = MTLBlock
-        # model_name == :
-        self.backbone = models.get_model(model_name, stem=True, cblock=cblock)
-        # else:
-        #     self.backbone = models.get_model(model_name, cblock=cblock)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        y_exp, y_aro, y_val, y_au = self.backbone(x)
-        return y_exp, y_aro, y_val, y_au
-
-
-class MTL_Static_LightningNet(pl.LightningModule):
-    def __init__(self, model_name, optimizer_name, lr):
-        super().__init__()
-        self.model_name = model_name
-        if model_name == "simplemlp":
-            self.model = SimpleMLP()
+        self.backbone_name = backbone_name
+        self.classifier_name = classifier_name
+        if self.backbone_name == "arcface_ires50":
+            self.backbone = ArcFaceIRes50()
         else:
-            raise ValueError(f"Currently do not support {model_name}")
+            raise
 
-        # self.model = AffWildNet(model_name)
+        if self.classifier_name == "mlp":
+            self.classifier = MTL_ClassifierMLP(
+                in_features=self.backbone.out_features, dropout=dropout
+            )
+        else:
+            raise
         self.loss_mse = MaskedMSELoss()
         self.loss_ce = MaskedCrossEntropyLoss()
         self.loss_bce = MaskedBCEWithLogitsLoss()
@@ -93,7 +42,8 @@ class MTL_Static_LightningNet(pl.LightningModule):
         self.lr = lr
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.model(x)
+        x = self.backbone(x)
+        return self.classifier(x)
 
     def training_step(self, batch, batch_idx: int) -> torch.Tensor:
         video_id = batch["video_id"]
@@ -107,21 +57,14 @@ class MTL_Static_LightningNet(pl.LightningModule):
 
         y_exp, y_aro, y_val, y_au = self(img_arr)
 
-        loss_arousal = self.loss_mse(input=y_aro, target=arousal, mask=arousal != -5)
-        loss_valence = self.loss_mse(input=y_val, target=valence, mask=valence != -5)
+        # loss_arousal = self.loss_mse(input=y_aro, target=arousal, mask=arousal != -5)
+        # loss_valence = self.loss_mse(input=y_val, target=valence, mask=valence != -5)
         loss_expression = self.loss_ce(input=y_exp, target=exp, mask=exp != -1)
         loss_au = self.loss_bce(input=y_au, target=au, mask=au != -1)
         # loss = (loss_arousal + loss_valence + loss_expression + loss_au) / 4
 
-        loss = [
-            l
-            for l in [loss_arousal, loss_valence, loss_expression, loss_au]
-            if l != "Ignored"
-        ]
+        loss = [l for l in [loss_expression, loss_au] if l != "Ignored"]
         loss = torch.mean(torch.stack(loss, dim=0))
-
-        # DEBUG
-        # import mipkit;mipkit.debug.set_trace();exit();
         self.log(
             "train_loss", loss, on_step=False, on_epoch=True, batch_size=batch_size
         )
@@ -140,24 +83,13 @@ class MTL_Static_LightningNet(pl.LightningModule):
         y_exp, y_aro, y_val, y_au = self(img_arr)
 
         # DEBUG
-        loss_arousal = self.loss_mse(input=y_aro, target=arousal, mask=arousal != -5)
-        loss_valence = self.loss_mse(input=y_val, target=valence, mask=valence != -5)
+        # loss_arousal = self.loss_mse(input=y_aro, target=arousal, mask=arousal != -5)
+        # loss_valence = self.loss_mse(input=y_val, target=valence, mask=valence != -5)
         loss_expression = self.loss_ce(input=y_exp, target=exp, mask=exp != -1)
         loss_au = self.loss_bce(input=y_au, target=au, mask=au != -1)
 
-        loss = [
-            l
-            for l in [loss_arousal, loss_valence, loss_expression, loss_au]
-            if l != "Ignored"
-        ]
+        loss = [l for l in [loss_expression, loss_au] if l != "Ignored"]
         loss = torch.mean(torch.stack(loss, dim=0))
-
-        if torch.isnan(loss):
-            # DEBUG
-            import mipkit
-
-            mipkit.debug.set_trace()
-            exit()
 
         y_exp = y_exp.argmax(dim=1, keepdim=True)
         y_au = torch.sigmoid(y_au)
@@ -169,11 +101,6 @@ class MTL_Static_LightningNet(pl.LightningModule):
         # au_acc = accuracy_score(au.detach().cpu().numpy(), y_au.detach().cpu().numpy())
 
         self.log("val_loss", loss, on_step=False, on_epoch=True, batch_size=batch_size)
-        # self.log("val_acc_exp", exp_acc, on_step=False, on_epoch=True)
-        # self.log("val_acc_au", au_acc, on_step=False, on_epoch=True)
-        # self.log("val_mse_aro", loss_arousal, on_step=False, on_epoch=True)
-        # self.log("val_mse_val", loss_valence, on_step=False, on_epoch=True)
-        # self.log("hp_metric", exp_acc, on_step=False, on_epoch=True)
 
         return {
             "val_loss": loss.detach(),
@@ -193,13 +120,13 @@ class MTL_Static_LightningNet(pl.LightningModule):
         val_loss = (
             torch.stack([out["val_loss"] for out in outputs]).mean().cpu().numpy()
         )
-        y_true_val = torch.cat([out["y_true_val"] for out in outputs]).cpu().numpy()
-        y_true_aro = torch.cat([out["y_true_aro"] for out in outputs]).cpu().numpy()
+        # y_true_val = torch.cat([out["y_true_val"] for out in outputs]).cpu().numpy()
+        # y_true_aro = torch.cat([out["y_true_aro"] for out in outputs]).cpu().numpy()
         y_true_exp = torch.cat([out["y_true_exp"] for out in outputs]).cpu().numpy()
         y_true_au = torch.cat([out["y_true_au"] for out in outputs]).cpu().numpy()
 
-        y_pred_val = torch.cat([out["y_pred_val"] for out in outputs]).cpu().numpy()
-        y_pred_aro = torch.cat([out["y_pred_aro"] for out in outputs]).cpu().numpy()
+        # y_pred_val = torch.cat([out["y_pred_val"] for out in outputs]).cpu().numpy()
+        # y_pred_aro = torch.cat([out["y_pred_aro"] for out in outputs]).cpu().numpy()
         y_pred_exp = torch.cat([out["y_pred_exp"] for out in outputs]).cpu().numpy()
         y_pred_exp = y_pred_exp.flatten()
         y_pred_au = torch.cat([out["y_pred_au"] for out in outputs]).cpu().numpy()
@@ -227,8 +154,8 @@ class MTL_Static_LightningNet(pl.LightningModule):
 
     def configure_optimizers(self) -> optim.Optimizer:
         if self.optimizer_name == "adam":
-            return optim.Adam(self.model.parameters(), lr=self.lr)
+            return optim.Adam(self.parameters(), lr=self.lr)
         elif self.optimizer_name == "sgd":
-            return optim.SGD(self.model.parameters(), lr=self.lr)
+            return optim.SGD(self.parameters(), lr=self.lr)
         else:
             raise

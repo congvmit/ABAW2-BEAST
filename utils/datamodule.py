@@ -14,21 +14,56 @@ import albumentations as A
 from albumentations.pytorch import ToTensorV2
 
 
-class AffWildDataset(data.Dataset):
-    def __init__(
-        self, data_dir, csv_path, feat_path=None, return_features=True, transform=None
-    ):
+from albumentations.core.transforms_interface import ImageOnlyTransform
+
+
+class ArcFaceTransform(ImageOnlyTransform):
+    def __init__(self, input_size, always_apply=True, p=1.0):
+        super(ArcFaceTransform, self).__init__(always_apply, p)
+        self.input_size = input_size  # (112, 112)
+        self.input_mean = 127.5
+        self.input_std = 127.5
+
+    def apply(self, img, **params):
+        img = cv2.dnn.blobFromImages(
+            [img],
+            1.0 / self.input_std,
+            self.input_size,
+            (self.input_mean, self.input_mean, self.input_mean),
+            swapRB=False,
+        )[0]
+        return img.transpose((1, 2, 0))
+
+    def get_transform_init_args_names(self):
+        return "input_size"
+
+
+# Transform Example
+# self.train_transform = A.Compose(
+#     [
+#         A.Resize(height=112, width=112),
+#         A.HorizontalFlip(p=0.5),
+#         A.RandomBrightnessContrast(p=0.2),
+#         A.ShiftScaleRotate(
+#             shift_limit=0.05, scale_limit=0.05, rotate_limit=15, p=0.5
+#         ),
+#         A.Normalize(
+#             mean=(0.485, 0.456, 0.406),
+#             std=(0.229, 0.224, 0.225),
+#             max_pixel_value=255.0,
+#             always_apply=True,
+#         ),
+#         ToTensorV2(),
+#     ]
+# )
+
+
+class Static_AffWildDataset(data.Dataset):
+    def __init__(self, data_dir, csv_path, return_features=True, transform=None):
         self.data_dir = data_dir
         self.transform = transform
-        self.feat_path = feat_path
         self.return_features = return_features
         self.df = pd.read_csv(csv_path)
-
-        if self.return_features:
-            # Load features
-            assert feat_path is not None
-            self.feat = self._load_feature_file(feat_path)
-            assert len(self.feat) == len(self.df)
 
     def __len__(self):
         return len(self.df)
@@ -47,17 +82,12 @@ class AffWildDataset(data.Dataset):
         video_id = data.VideoID
         frame_id = data.FrameID
 
-        if not self.return_features:
-            img_path = os.path.join(
-                *[self.data_dir, "cropped_aligned", video_id, frame_id]
-            )
-            img_arr = self._load_image(img_path)
-            assert img_arr is not None
+        img_path = os.path.join(*[self.data_dir, "cropped_aligned", video_id, frame_id])
+        img_arr = self._load_image(img_path)
+        assert img_arr is not None
 
-            if self.transform is not None:
-                img_arr = self.transform(image=img_arr)["image"]
-        else:
-            img_arr = self.feat[index]
+        if self.transform is not None:
+            img_arr = self.transform(image=img_arr)["image"]
 
         # Valence, Arousal are in range of [-1, 1]
         valence = torch.tensor(float(data.Valence), dtype=torch.float32)
@@ -84,7 +114,7 @@ class AffWildDataModule(pl.LightningDataModule):
     def __init__(
         self,
         data_dir: str,
-        feature_name: str = "arcface",
+        mode="static",
         batch_size: int = 32,
         num_workers: int = 6,
     ):
@@ -92,57 +122,46 @@ class AffWildDataModule(pl.LightningDataModule):
         self.data_dir = data_dir
         self.batch_size = batch_size
         self.num_workers = num_workers
-        self.feature_name = feature_name
+        self.mode = mode
+        assert mode in ["static", "sequential"]
 
     def setup(self, stage: Optional[str] = None) -> None:
         # Declare an augmentation pipeline
 
         self.train_transform = A.Compose(
             [
-                # A.RandomCrop(width=224, height=224),
-                A.Resize(height=224, width=224),
+                A.Resize(height=112, width=112),
                 A.HorizontalFlip(p=0.5),
                 A.RandomBrightnessContrast(p=0.2),
                 A.ShiftScaleRotate(
                     shift_limit=0.05, scale_limit=0.05, rotate_limit=15, p=0.5
                 ),
-                A.Normalize(
-                    mean=(0.485, 0.456, 0.406),
-                    std=(0.229, 0.224, 0.225),
-                    max_pixel_value=255.0,
-                    always_apply=True,
-                ),
+                ArcFaceTransform(input_size=(112, 112)),
                 ToTensorV2(),
             ]
         )
         self.val_test_transform = A.Compose(
             [
-                A.Resize(height=224, width=224),
-                A.Normalize(
-                    mean=(0.485, 0.456, 0.406),
-                    std=(0.229, 0.224, 0.225),
-                    max_pixel_value=255.0,
-                    always_apply=True,
-                ),
+                A.Resize(height=112, width=112),
+                ArcFaceTransform(input_size=(112, 112)),
                 ToTensorV2(),
             ]
         )
 
+        if self.mode == "static":
+            DataModule = Static_AffWildDataset
+        else:
+            raise
+
         if stage in ["fit", "validate"]:
-            self.train_ds = AffWildDataset(
+            self.train_ds = DataModule(
                 self.data_dir,
                 os.path.join(self.data_dir, "mtl_train_anno.csv"),
-                feat_path=os.path.join(
-                    self.data_dir, f"mtl_train_{self.feature_name}_feats.npy"
-                ),
                 transform=self.train_transform,
             )
-            self.val_ds = AffWildDataset(
+            self.val_ds = DataModule(
                 self.data_dir,
                 os.path.join(self.data_dir, "mtl_validation_anno.csv"),
-                feat_path=os.path.join(
-                    self.data_dir, f"mtl_validation_{self.feature_name}_feats.npy"
-                ),
                 transform=self.val_test_transform,
             )
         elif stage in ["predict"]:

@@ -6,7 +6,7 @@ from packaging import version
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 
-from utils.mtl_netmodule import MTL_Static_LightningNet
+from utils.mtl_netmodule import MTL_StaticLightningNet
 from utils.datamodule import AffWildDataModule
 
 from tqdm import tqdm
@@ -21,27 +21,22 @@ class Experiment:
         self.args = args
 
     def manual_run(self):
-
-        batch_size = self.args.batch_size
-        optimizer_name = self.args.optimizer
-        lr = self.args.lr
-        model_name = self.args.model_name  #'alternet_18'
-        model = MTL_Static_LightningNet(
-            model_name=model_name, optimizer_name=optimizer_name, lr=lr
+        model = MTL_StaticLightningNet(
+            backbone_name=self.args.backbone_name,
+            classifier_name=self.args.classifier_name,
+            optimizer_name=self.args.optimizer,
+            lr=self.args.lr,
         )
         datamodule = AffWildDataModule(
-            data_dir=self.args.data_dir, batch_size=batch_size
+            data_dir=self.args.data_dir, batch_size=self.args.batch_size, mode=args.mode
         )
 
         trainer = pl.Trainer(
             accelerator="gpu",
             logger=True,
-            # limit_val_batches=PERCENT_VALID_EXAMPLES,
-            enable_checkpointing=True,
             max_epochs=self.args.epochs,
             auto_select_gpus=True,
             gpus=1,
-            fast_dev_run=2000,
             # strategy='dp',
             # gpus=1 if torch.cuda.is_available() else None,
             callbacks=[
@@ -54,21 +49,17 @@ class Experiment:
                 ),
             ],
         )
-        hyperparameters = dict(
-            model_name=model_name,
-            batch_size=batch_size,
-            optimizer_name=optimizer_name,
-            lr=lr,
-        )
+        hyperparameters = vars(args)
+        pprint(hyperparameters)
         trainer.logger.log_hyperparams(hyperparameters)
         trainer.fit(model, datamodule=datamodule)
 
-        print("val_loss:", trainer.callback_metrics["val_loss"].item())
-        print("val_acc_exp:", trainer.callback_metrics["val_acc_exp"].item())
-        print("val_acc_au:", trainer.callback_metrics["val_acc_au"].item())
-        print("val_mse_aro:", trainer.callback_metrics["val_mse_aro"].item())
-        print("val_mse_val:", trainer.callback_metrics["val_mse_val"].item())
-        print("hp_metric:", trainer.callback_metrics["hp_metric"].item())
+        # print("val_loss:", trainer.callback_metrics["val_loss"].item())
+        # print("val_acc_exp:", trainer.callback_metrics["val_acc_exp"].item())
+        # print("val_acc_au:", trainer.callback_metrics["val_acc_au"].item())
+        # print("val_mse_aro:", trainer.callback_metrics["val_mse_aro"].item())
+        # print("val_mse_val:", trainer.callback_metrics["val_mse_val"].item())
+        # print("hp_metric:", trainer.callback_metrics["hp_metric"].item())
 
     def objective(self, trial: optuna.trial.Trial) -> float:
         # We optimize the number of layers, hidden units in each layer and dropouts.
@@ -85,10 +76,14 @@ class Experiment:
             "optimizer_name", choices=["sgd", "adam"]
         )
         lr = trial.suggest_float("lr", 2e-5, 2e-3)
-        model_name = "simplemlp"
+        backbone_name = self.args.backbone_name
+        classifier_name = self.args.classifier_name
 
-        model = MTL_Static_LightningNet(
-            model_name=model_name, optimizer_name=optimizer_name, lr=lr
+        model = MTL_StaticLightningNet(
+            backbone_name=backbone_name,
+            classifier_name=classifier_name,
+            optimizer_name=optimizer_name,
+            lr=lr,
         )
         datamodule = AffWildDataModule(
             data_dir=self.args.data_dir, batch_size=batch_size
@@ -114,7 +109,8 @@ class Experiment:
             ],
         )
         hyperparameters = dict(
-            model_name=model_name,
+            backbone_name=backbone_name,
+            classifier_name=classifier_name,
             batch_size=batch_size,
             optimizer_name=optimizer_name,
             lr=lr,
@@ -162,17 +158,34 @@ def get_args():
     # DATA_DIR = "/home/lab/congvm/Affwild2"
     parser.add_argument("--data-dir", type=str, default="/home/lab/congvm/Affwild2")
     parser.add_argument(
-        "--model-name", type=str, default="simplemlp", choices=["simplemlp"]
+        "--backbone-name",
+        type=str,
+        default="arcface_ires50",
+        choices=["arcface_ires50"],
     )
     parser.add_argument(
-        "--feature-name", type=str, default="arcface", choices=["arcface", "vggface"]
+        "--classifier-name",
+        type=str,
+        default="mlp",
+        choices=["mlp"],
+    )
+
+    parser.add_argument(
+        "--dropout",
+        type=float,
+        default=0.2,
+    )
+    parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--optimizer", type=str, default="adam")
+    parser.add_argument("--lr", type=float, default=0.001)
+    
+    parser.add_argument(
+        "--mode", type=str, default="static", choices=["static", "sequential"]
     )
     # Manual
     parser.add_argument("--seed", type=int, default=2022)
     parser.add_argument("--epochs", type=int, default=100)
-    parser.add_argument("--batch-size", type=int, default=32)
-    parser.add_argument("--optimizer", type=str, default="adam")
-    parser.add_argument("--lr", type=float, default=0.001)
+
     args = parser.parse_args()
     return args
 
