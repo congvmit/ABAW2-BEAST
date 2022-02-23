@@ -119,6 +119,7 @@ class Static_AffWildDataset(data.Dataset):
 
         if self.transform is not None:
             img_arr = self.transform(image=img_arr)["image"]
+            img_arr = np.array(img_arr, dtype=np.float32)
 
         if self.task == "exp":
             labels = data["labels_ex"]
@@ -126,6 +127,7 @@ class Static_AffWildDataset(data.Dataset):
             labels = np.array(eval(data["labels_au"]), dtype=np.float32)
         elif self.task == "va":
             labels = np.array(data["labels_va"], dtype=np.float32)
+        
         labels = torch.tensor(labels)
         return {"img_arr": img_arr, "labels": labels}
 
@@ -164,10 +166,75 @@ class Static_AffWildDataset(data.Dataset):
         }
 
 
+def get_transform(backbone_name):
+    image_size = 224 if backbone_name == 'fecnet' else 112
+
+    if backbone_name == 'arcface_ires50':
+        print('> Get ArcFace transform funcs')
+        train_transform = A.Compose(
+            [
+                A.Resize(height=image_size, width=image_size),
+                A.HorizontalFlip(p=0.5),
+                ArcFaceTransform(input_size=(image_size, image_size)),
+                ToTensorV2(),
+            ]
+        )
+        val_test_transform = A.Compose(
+            [
+                A.Resize(height=image_size, width=image_size),
+                ArcFaceTransform(input_size=(image_size, image_size)),
+                ToTensorV2(),
+            ]
+        )
+    elif backbone_name == 'fecnet':
+        print('> Get FecNet transform funcs')
+        train_transform = A.Compose(
+            [
+                A.Resize(height=image_size, width=image_size),
+                A.HorizontalFlip(p=0.5),
+                ToTensorV2(),
+            ]
+        )
+        val_test_transform = A.Compose(
+            [
+                A.Resize(height=image_size, width=image_size),
+                ToTensorV2(),
+            ]
+        )
+    else:
+        print('> Get ImageNet transform funcs')
+        train_transform = A.Compose(
+            [
+                A.Resize(height=image_size, width=image_size),
+                A.HorizontalFlip(p=0.5),
+                A.Normalize(
+                    mean=(0.485, 0.456, 0.406),
+                    std=(0.229, 0.224, 0.225),
+                    max_pixel_value=255.0,
+                    always_apply=True,
+                ),
+                ToTensorV2(),
+            ]
+        )
+        val_test_transform = A.Compose(
+            [
+                A.Resize(height=image_size, width=image_size),
+                A.Normalize(
+                    mean=(0.485, 0.456, 0.406),
+                    std=(0.229, 0.224, 0.225),
+                    max_pixel_value=255.0,
+                    always_apply=True,
+                ),
+                ToTensorV2(),
+            ]
+        )
+    return train_transform, val_test_transform
+
 class AffWildDataModule(pl.LightningDataModule):
     def __init__(
         self,
         data_dir: str,
+        backbone_name,
         mode="static",
         task="exp",
         batch_size: int = 32,
@@ -179,6 +246,7 @@ class AffWildDataModule(pl.LightningDataModule):
         self.num_workers = num_workers
         self.task = task
         self.mode = mode
+        self.backbone_name = backbone_name
         assert mode in ["static", "sequential"]
         self.task_mapping = {
             "au": "AU_Detection_Challenge",
@@ -189,28 +257,8 @@ class AffWildDataModule(pl.LightningDataModule):
     def setup(self, stage: Optional[str] = None) -> None:
         # Declare an augmentation pipeline
 
-        self.train_transform = A.Compose(
-            [
-                A.Resize(height=112, width=112),
-                A.HorizontalFlip(p=0.5),
-                # A.RandomBrightnessContrast(p=0.2),
-                A.ShiftScaleRotate(
-                    shift_limit=0.05, scale_limit=0.05, rotate_limit=15, p=0.5
-                ),
-                ArcFaceTransform(input_size=(112, 112)),
-                ToTensorV2(),
-            ]
-        )
-        self.val_test_transform = A.Compose(
-            [
-                A.Resize(height=112, width=112),
-                ArcFaceTransform(input_size=(112, 112)),
-                ToTensorV2(),
-            ]
-        )
-
+        self.train_transform, self.val_test_transform = get_transform(self.backbone_name)
         if self.mode == "static":
-            # data_dir, task, csv_path=None, transform=None
             DataModule = Static_AffWildDataset
         else:
             raise

@@ -96,6 +96,7 @@ class Experiment:
 
         datamodule = AffWildDataModule(
             data_dir=self.args.data_dir,
+            backbone_name=self.args.backbone_name,
             batch_size=self.args.batch_size,
             mode=self.args.mode,
             task=self.args.task,
@@ -243,7 +244,7 @@ def get_args():
         "--backbone-name",
         type=str,
         default="arcface_ires50",
-        choices=["arcface_ires50", 'fecnet'],
+        choices=["arcface_ires50", 'fecnet', 'resnet50', 'vggresnet50'],
     )
     parser.add_argument(
         "--classifier-name",

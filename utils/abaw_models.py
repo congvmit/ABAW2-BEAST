@@ -5,12 +5,28 @@ import cv2
 import torch.nn.functional as F
 
 from numpy.linalg import norm as l2norm
-
+from . import backbone
 
 def normed_embedding(embedding):
     return embedding / l2norm(embedding)
 
+import pickle
 
+class VGGFaceRes50(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.backbone = backbone.resnet.resnet50()
+        pretrained_vggface2 = "ckpts/resnet50_ft_weight.pkl"
+        with open(pretrained_vggface2, "rb") as f:
+            pretrained_data = pickle.load(f)
+        for k, v in pretrained_data.items():
+            pretrained_data[k] = v
+        self.backbone.load_state_dict(pretrained_data, strict=True)
+        self.out_features = 2048
+    
+    def forward(self, x):
+        return self.backbone(x)
+        
 class ArcFaceIRes50(nn.Module):
     def __init__(self, ckpt="ckpts/glint360k_cosface_r50_fp16_0.1_backbone.pth"):
         super().__init__()

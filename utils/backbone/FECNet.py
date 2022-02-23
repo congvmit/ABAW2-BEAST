@@ -25,7 +25,7 @@ class FECNet(nn.Module):
         block_config = [5]
         efficient = True
         self.include_top = include_top
-        self.Inc = InceptionResnetV1(pretrained='vggface2', device='cuda').eval()
+        self.Inc = InceptionResnetV1(pretrained='vggface2').eval()
         for param in self.Inc.parameters():
             param.requires_grad = False
         self.dense = DenseNet(growth_rate=growth_rate,
@@ -33,10 +33,21 @@ class FECNet(nn.Module):
                         num_classes=16,
                         small_inputs=True,
                         efficient=efficient,
-                        num_init_features=512, include_top=include_top).cuda()
+                        num_init_features=512, include_top=include_top)
 
         if (pretrained):
-            load_weights(self)
+            state_dict = torch.load('ckpts/FECNet.pt')
+            if not self.include_top:
+                # Remove classifier layer
+                state_dict_ = {}
+                for k, v in state_dict.items():
+                    if 'classifier' not in k:
+                        state_dict_[k] = v
+                print(self.load_state_dict(state_dict_))
+            else:
+                print(self.load_state_dict(state_dict))
+
+        self.out_features = 832 # If input is 3x224x224
 
     def forward(self, x):
         feat = self.Inc(x)[1]
