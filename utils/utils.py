@@ -36,3 +36,5 @@ def split_data(df_data1, df_data2, number_fold):
         df_split[fold] = data.iloc[test_index].reset_index(drop=True)
 
     return df_train, df_split
+
+

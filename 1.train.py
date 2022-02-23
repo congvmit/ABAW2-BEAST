@@ -7,8 +7,8 @@ from packaging import version
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 
-from utils.mtl_netmodule import MTL_StaticLightningNet
-from utils.exp_netmodule import EXP_StaticLightningNet
+# from utils.mtl_netmodule import MTL_StaticLightningNet
+from utils.netmodule import EXP_StaticLightningNet, MTL_StaticLightningNet
 
 from utils.datamodule import AffWildDataModule
 
@@ -80,7 +80,7 @@ class Experiment:
                 print("> Load model for EXP task")
                 model = EXP_StaticLightningNet(self.args)
 
-                monitor_metric = 'perf_val_exp'
+                monitor_metric = 'val_perf_exp'
                 optimal_mode = 'max'
             else:
                 raise

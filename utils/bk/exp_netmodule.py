@@ -9,6 +9,7 @@ from torch.nn import CrossEntropyLoss
 from sklearn.metrics import f1_score
 from .abaw_models import EXP_ClassifierMLP, ArcFaceIRes50
 
+from .metrics import EXP_metric
 
 
 class EXP_StaticLightningNet(pl.LightningModule):
@@ -88,9 +89,7 @@ class EXP_StaticLightningNet(pl.LightningModule):
         y_pred_exp = torch.cat([out["y_pred_exp"] for out in outputs]).cpu().numpy()
         y_pred_exp = y_pred_exp.flatten()
 
-        perf_exp = f1_score(
-            y_pred_exp, y_true_exp, labels=[0, 1, 2, 3, 4, 5, 6, 7, 8], average="macro"
-        )
+        perf_exp = EXP_metric(y_pred_exp, y_true_exp)
         self.log("val_perf_exp", perf_exp, prog_bar=True, on_step=False, on_epoch=True)
 
     def configure_optimizers(self):
