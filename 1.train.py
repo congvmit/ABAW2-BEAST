@@ -2,11 +2,14 @@ import os
 import argparse
 import optuna
 from optuna.integration import PyTorchLightningPruningCallback
+from pytorch_lightning.callbacks import BackboneFinetuning
 from packaging import version
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 
 from utils.mtl_netmodule import MTL_StaticLightningNet
+from utils.exp_netmodule import EXP_StaticLightningNet
+
 from utils.datamodule import AffWildDataModule
 
 from tqdm import tqdm
@@ -16,25 +19,85 @@ if version.parse(pl.__version__) < version.parse("1.0.2"):
     raise RuntimeError("PyTorch Lightning>=1.0.2 is required for this example.")
 
 
+class CustomBackboneFinetuning(BackboneFinetuning):
+    def freeze_before_training(self, pl_module):
+        print('> BackboneFinetuning: Freeze backbone')
+        self.freeze(pl_module.backbone)
+
+    def finetune_function(
+        self,
+        pl_module: "pl.LightningModule",
+        epoch: int,
+        optimizer,
+        opt_idx: int,
+    ) -> None:
+        """Called when the epoch begins."""
+        if epoch == self.unfreeze_backbone_at_epoch:
+            current_lr = optimizer.param_groups[0]["lr"]
+            initial_backbone_lr = current_lr
+            self.previous_backbone_lr = initial_backbone_lr
+
+            self.unfreeze_and_add_param_group(
+                pl_module.backbone,
+                optimizer,
+                initial_backbone_lr,
+                train_bn=self.train_bn,
+                initial_denom_lr=self.initial_denom_lr,
+            )
+            if self.verbose:
+                print(
+                    f"Current lr: {round(current_lr, self.rounding)}, "
+                    f"Backbone lr: {round(initial_backbone_lr, self.rounding)}"
+                )
+
+        elif epoch > self.unfreeze_backbone_at_epoch:
+            current_lr = optimizer.param_groups[0]["lr"]
+            next_current_backbone_lr = current_lr
+            optimizer.param_groups[-1]["lr"] = next_current_backbone_lr
+            self.previous_backbone_lr = next_current_backbone_lr
+            if self.verbose:
+                print(
+                    f"Current lr: {round(current_lr, self.rounding)}, "
+                    f"Backbone lr: {round(next_current_backbone_lr, self.rounding)}"
+                )
+
+
 class Experiment:
     def __init__(self, args):
         self.args = args
 
     def manual_run(self):
-        model = MTL_StaticLightningNet(
-            backbone_name=self.args.backbone_name,
-            classifier_name=self.args.classifier_name,
-            optimizer_name=self.args.optimizer,
-            lr=self.args.lr,
-        )
+
+        if self.args.mode == "static":
+            print("> Load STATIC model")
+            if self.args.task == "mtl":
+                print("> Load model for MTL task")
+                model = MTL_StaticLightningNet(self.args)
+
+                monitor_metric = 'val_loss'
+                optimal_mode = 'min'
+            elif self.args.task == "exp":
+                print("> Load model for EXP task")
+                model = EXP_StaticLightningNet(self.args)
+
+                monitor_metric = 'perf_val_exp'
+                optimal_mode = 'max'
+            else:
+                raise
+        else:
+            raise
+
         datamodule = AffWildDataModule(
-            data_dir=self.args.data_dir, batch_size=self.args.batch_size, mode=args.mode
+            data_dir=self.args.data_dir,
+            batch_size=self.args.batch_size,
+            mode=self.args.mode,
+            task=self.args.task,
         )
 
         trainer = pl.Trainer(
             accelerator="gpu",
             logger=True,
-            max_epochs=self.args.epochs,
+            max_epochs=self.args.num_epochs,
             auto_select_gpus=True,
             gpus=1,
             # strategy='dp',
@@ -44,8 +107,12 @@ class Experiment:
                     filename="{epoch}-{val_loss:.5f}-{train_loss:.5f}",
                     verbose=True,
                     save_top_k=3,
-                    mode="min",
-                    monitor="val_loss",
+                    mode=optimal_mode,
+                    monitor=monitor_metric,
+                ),
+                CustomBackboneFinetuning(
+                    unfreeze_backbone_at_epoch=args.unfreeze_epoch,
+                    verbose=True,
                 ),
             ],
         )
@@ -53,15 +120,9 @@ class Experiment:
         pprint(hyperparameters)
         trainer.logger.log_hyperparams(hyperparameters)
         trainer.fit(model, datamodule=datamodule)
-
         # print("val_loss:", trainer.callback_metrics["val_loss"].item())
-        # print("val_acc_exp:", trainer.callback_metrics["val_acc_exp"].item())
-        # print("val_acc_au:", trainer.callback_metrics["val_acc_au"].item())
-        # print("val_mse_aro:", trainer.callback_metrics["val_mse_aro"].item())
-        # print("val_mse_val:", trainer.callback_metrics["val_mse_val"].item())
-        # print("hp_metric:", trainer.callback_metrics["hp_metric"].item())
 
-    def objective(self, trial: optuna.trial.Trial) -> float:
+    def optuna_objective(self, trial: optuna.trial.Trial) -> float:
         # We optimize the number of layers, hidden units in each layer and dropouts.
         # n_layers = trial.suggest_int("n_layers", 1, 3)
         # dropout = trial.suggest_float("dropout", 0.2, 0.5)
@@ -92,7 +153,7 @@ class Experiment:
         trainer = pl.Trainer(
             accelerator="gpu",
             logger=True,
-            max_epochs=self.args.epochs,
+            max_epochs=self.args.num_epochs,
             auto_select_gpus=True,
             gpus=1,
             # strategy='dp',
@@ -122,10 +183,14 @@ class Experiment:
         return trainer.callback_metrics["val_loss"].item()
 
 
-def debug_dataset():
-    BATCH_SIZE = 32
-    DATA_DIR = "/home/lab/congvm/Affwild2"
-    data_module = AffWildDataModule(data_dir=DATA_DIR, batch_size=BATCH_SIZE)
+def debug_dataset(args):
+    data_module = AffWildDataModule(
+        data_dir=args.data_dir,
+        batch_size=args.batch_size,
+        mode=args.mode,
+        task=args.task,
+        num_workers=args.num_workers,
+    )
     data_module.setup(stage="fit")
 
     train_dataloader = data_module.train_dataloader()
@@ -158,6 +223,12 @@ def get_args():
     # DATA_DIR = "/home/lab/congvm/Affwild2"
     parser.add_argument("--data-dir", type=str, default="/home/lab/congvm/Affwild2")
     parser.add_argument(
+        "--task",
+        type=str,
+        default="exp",
+        choices=["exp", "au", "mtl", "va"],
+    )
+    parser.add_argument(
         "--backbone-name",
         type=str,
         default="arcface_ires50",
@@ -175,16 +246,22 @@ def get_args():
         type=float,
         default=0.2,
     )
+
+    parser.add_argument("--unfreeze-epoch", type=int, default=2)
     parser.add_argument("--batch-size", type=int, default=32)
-    parser.add_argument("--optimizer", type=str, default="adam")
+    parser.add_argument("--optimizer", type=str, default="sgd", choices=['adam', 'sgd'])
+    parser.add_argument("--scheduler", type=str, default="cosine", choices=['cosine', 'constant'])
     parser.add_argument("--lr", type=float, default=0.001)
+    parser.add_argument("--weight-decay", type=float, default=0.001)
     
+
     parser.add_argument(
         "--mode", type=str, default="static", choices=["static", "sequential"]
     )
     # Manual
     parser.add_argument("--seed", type=int, default=2022)
-    parser.add_argument("--epochs", type=int, default=100)
+    parser.add_argument("--num-workers", type=int, default=4)
+    parser.add_argument("--num-epochs", type=int, default=30)
 
     args = parser.parse_args()
     return args
@@ -195,7 +272,7 @@ if __name__ == "__main__":
     pl.seed_everything(args.seed)
 
     if args.debug_dataset:
-        debug_dataset()
+        debug_dataset(args)
 
     experiment = Experiment(args)
     if not args.manual:
@@ -208,7 +285,7 @@ if __name__ == "__main__":
         # This experiment is to minimize val_loss
         study = optuna.create_study(direction="minimize", pruner=pruner)
         study.optimize(
-            experiment.objective,
+            experiment.optuna_objective,
             n_trials=args.num_trials,
             timeout=args.timeout,
             n_jobs=args.n_jobs,

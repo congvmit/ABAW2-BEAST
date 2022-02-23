@@ -2,6 +2,13 @@ import torch
 import torch.nn as nn
 from thirdparty.insightface.recognition.arcface_torch.backbones import iresnet50
 import cv2
+import torch.nn.functional as F
+
+from numpy.linalg import norm as l2norm
+
+
+def normed_embedding(embedding):
+    return embedding / l2norm(embedding)
 
 
 class ArcFaceIRes50(nn.Module):
@@ -14,7 +21,9 @@ class ArcFaceIRes50(nn.Module):
         self.out_features = 512
 
     def forward(self, x):
-        return self.backbone(x)
+        x = self.backbone(x)
+        x = F.normalize(x, p=2, dim=1)
+        return x
 
     def get_feat(self, x):
         with torch.no_grad():
@@ -55,18 +64,53 @@ class MTL_ClassifierMLP(nn.Module):
         super(MTL_ClassifierMLP, self).__init__()
         self.in_features = in_features
         self.dropout = dropout
-        self.fc = nn.Linear(in_features=in_features, out_features=in_features // 2)
-        self.dense_aro = nn.Linear(in_features // 2, 1)
-        self.dense_val = nn.Linear(in_features // 2, 1)
-        self.dense_au = nn.Linear(in_features // 2, 12)
-        self.dense_exp = nn.Linear(in_features // 2, 8)
-        self.dropout = nn.Dropout(dropout)
-        self.relu = nn.ReLU()
+        self.fc_au = nn.Sequential(
+            nn.Linear(in_features=in_features, out_features=in_features // 2),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(in_features=in_features // 2, out_features=12),
+        )
+
+        self.fc_exp = nn.Sequential(
+            nn.Linear(in_features=in_features, out_features=in_features // 2),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(in_features=in_features // 2, out_features=8),
+        )
+
+        self.fc_aro = nn.Sequential(
+            nn.Linear(in_features=in_features, out_features=in_features // 2),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(in_features=in_features // 2, out_features=1),
+        )
+
+        self.fc_val = nn.Sequential(
+            nn.Linear(in_features=in_features, out_features=in_features // 2),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(in_features=in_features // 2, out_features=1),
+        )
 
     def forward(self, x):
-        x = self.dropout(self.relu(self.fc(x)))
-        x_exp = self.dense_exp(x)
-        x_aro = self.dense_aro(x)
-        x_val = self.dense_val(x)
-        x_au = self.dense_au(x)
+        x_exp = self.fc_exp(x)
+        x_aro = self.fc_aro(x)
+        x_val = self.fc_val(x)
+        x_au = self.fc_au(x)
         return x_exp, x_aro, x_val, x_au
+
+
+class EXP_ClassifierMLP(nn.Module):
+    def __init__(self, in_features=512, dropout=0.2):
+        super(EXP_ClassifierMLP, self).__init__()
+        self.in_features = in_features
+        self.dropout = dropout
+        self.fc = nn.Sequential(
+            nn.Linear(in_features=in_features, out_features=in_features // 2),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(in_features=in_features // 2, out_features=8),
+        )
+
+    def forward(self, x):
+        return self.fc(x)

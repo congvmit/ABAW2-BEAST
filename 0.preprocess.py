@@ -16,7 +16,7 @@ from numpy.linalg import norm as l2norm
 import argparse
 
 parser = argparse.ArgumentParser(description="Preprocessing")
-parser.add_argument("--no-extract-feats", action="store_true")
+parser.add_argument("--extract-feats", action="store_true")
 parser.add_argument(
     "--challenge-name",
     type=str,
@@ -59,7 +59,7 @@ EMOTION_MAP = {
     7: "Other",
 }
 
-EXTRACT_FEATS = not args.no_extract_feats
+EXTRACT_FEATS = not args.extract_feats
 REG_MODEL_PATH = "ckpts/models/buffalo_l/w600k_r50.onnx"
 # %%
 def read_txt(path):

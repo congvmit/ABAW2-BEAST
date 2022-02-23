@@ -46,6 +46,7 @@ def take_images(data_file_name):
 
 def creat_df_video(annot_txt_file, data_file_name, path_save, type_partition):
     images_dir, number_id = take_images(data_file_name)
+
     df = pd.DataFrame(images_dir, columns=["image_id"])
 
     if type_partition == "EXPR_Classification_Challenge":
@@ -91,11 +92,11 @@ def take_name_video(dir_path):
 
 
 if __name__ == "__main__":
-    dir_images = "/mnt/DATA2/congvm/Affwild2/images"
+    dir_images = "/home/lab/congvm/Affwild2/images"
     dir_save_df_labels = [
-        "/mnt/DATA2/congvm/Affwild2/saved_labels/AU_Detection_Challenge",
-        "/mnt/DATA2/congvm/Affwild2/saved_labels/EXPR_Classification_Challenge",
-        "/mnt/DATA2/congvm/Affwild2/saved_labels/VA_Estimation_Challenge",
+        "/home/lab/congvm/Affwild2/saved_labels/AU_Detection_Challenge",
+        "/home/lab/congvm/Affwild2/saved_labels/EXPR_Classification_Challenge",
+        "/home/lab/congvm/Affwild2/saved_labels/VA_Estimation_Challenge",
     ]
 
     for set_data in ["Train_Set", "Validation_Set"]:

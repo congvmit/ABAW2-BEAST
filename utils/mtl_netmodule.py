@@ -19,10 +19,10 @@ def compute_f1_score_au(input, target):
 
 
 class MTL_StaticLightningNet(pl.LightningModule):
-    def __init__(self, backbone_name, classifier_name, optimizer_name, lr, dropout=0.2):
+    def __init__(self, args):
         super().__init__()
-        self.backbone_name = backbone_name
-        self.classifier_name = classifier_name
+        self.backbone_name = args.backbone_name
+        self.classifier_name = args.classifier_name
         if self.backbone_name == "arcface_ires50":
             self.backbone = ArcFaceIRes50()
         else:
@@ -30,7 +30,7 @@ class MTL_StaticLightningNet(pl.LightningModule):
 
         if self.classifier_name == "mlp":
             self.classifier = MTL_ClassifierMLP(
-                in_features=self.backbone.out_features, dropout=dropout
+                in_features=self.backbone.out_features, dropout=args.dropout
             )
         else:
             raise
@@ -38,8 +38,8 @@ class MTL_StaticLightningNet(pl.LightningModule):
         self.loss_ce = MaskedCrossEntropyLoss()
         self.loss_bce = MaskedBCEWithLogitsLoss()
 
-        self.optimizer_name = optimizer_name
-        self.lr = lr
+        self.optimizer_name = args.optimizer_name
+        self.lr = args.lr
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.backbone(x)
@@ -100,7 +100,14 @@ class MTL_StaticLightningNet(pl.LightningModule):
         # )
         # au_acc = accuracy_score(au.detach().cpu().numpy(), y_au.detach().cpu().numpy())
 
-        self.log("val_loss", loss, on_step=False, on_epoch=True, batch_size=batch_size)
+        self.log(
+            "val_loss",
+            loss,
+            prog_bar=True,
+            on_step=False,
+            on_epoch=True,
+            batch_size=batch_size,
+        )
 
         return {
             "val_loss": loss.detach(),
@@ -154,8 +161,12 @@ class MTL_StaticLightningNet(pl.LightningModule):
 
     def configure_optimizers(self) -> optim.Optimizer:
         if self.optimizer_name == "adam":
-            return optim.Adam(self.parameters(), lr=self.lr)
+            return optim.Adam(
+                filter(lambda p: p.requires_grad, self.parameters()), lr=self.lr
+            )
         elif self.optimizer_name == "sgd":
-            return optim.SGD(self.parameters(), lr=self.lr)
+            return optim.SGD(
+                filter(lambda p: p.requires_grad, self.parameters()), lr=self.lr
+            )
         else:
             raise

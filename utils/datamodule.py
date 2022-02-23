@@ -57,25 +57,79 @@ class ArcFaceTransform(ImageOnlyTransform):
 #     ]
 # )
 
+from glob import glob
+from tqdm import tqdm
+
+
+class CSVReader(dict):
+    """Faster CSVReader"""
+
+    def __init__(self, df):
+        self.df = df
+        self.loc = self  # Hack to be the same call as pandas
+
+    def iloc(self, row_idx):
+        columns = self.df.columns
+        data_dict = {}
+        [data_dict.update({col: self.df[col][row_idx]}) for col in columns]
+        return data_dict
+
+    def __getitem__(self, index: int):
+        return self.iloc(index)
+
+    def __len__(self) -> int:
+        return len(self.df)
+
 
 class Static_AffWildDataset(data.Dataset):
-    def __init__(self, data_dir, csv_path, return_features=True, transform=None):
+    def __init__(self, data_dir, task, csv_path=None, transform=None):
+        self.task = task
         self.data_dir = data_dir
+        self.csv_path = csv_path
         self.transform = transform
-        self.return_features = return_features
-        self.df = pd.read_csv(csv_path)
-
-    def __len__(self):
-        return len(self.df)
+        if self.task == "mtl":
+            assert csv_path is not None
+            self.df = pd.read_csv(csv_path)
+        else:
+            self.list_csv = glob(data_dir + "/*.csv")
+            self.df = pd.DataFrame()
+            for i in tqdm(self.list_csv, total=len(self.list_csv)):
+                self.df = pd.concat((self.df, pd.read_csv(i)), axis=0).reset_index(
+                    drop=True
+                )
+            self.df = CSVReader(self.df)
 
     def _load_image(self, img_path):
         img_arr = cv2.imread(img_path)
         return cv2.cvtColor(img_arr, cv2.COLOR_BGR2RGB)
 
-    def _load_feature_file(self, path):
-        return np.load(path, allow_pickle=True)
+    def __len__(self):
+        return len(self.df)
 
     def __getitem__(self, index):
+        if self.task == "mtl":
+            return self.getitem_mtl(index)
+        else:
+            return self.getitem(index)
+
+    def getitem(self, index):
+        data = self.df.iloc(index)
+        img_path = data["image_id"]
+        img_arr = self._load_image(img_path)
+
+        if self.transform is not None:
+            img_arr = self.transform(image=img_arr)["image"]
+
+        if self.task == "exp":
+            labels = data["labels_ex"]
+        elif self.task == "au":
+            labels = data["labels_au"]
+        elif self.task == "va":
+            labels = data["labels_va"]
+        labels = torch.tensor(labels)
+        return {"img_arr": img_arr, "labels": labels}
+
+    def getitem_mtl(self, index):
         # VideoID	FrameID	Valence	Arousal	Expression
         # AU1   AU2 AU4	AU6	AU7	AU10	AU12	AU15	AU23	AU24	AU25	AU26
         data = self.df.iloc[index]
@@ -115,6 +169,7 @@ class AffWildDataModule(pl.LightningDataModule):
         self,
         data_dir: str,
         mode="static",
+        task="exp",
         batch_size: int = 32,
         num_workers: int = 6,
     ):
@@ -122,8 +177,14 @@ class AffWildDataModule(pl.LightningDataModule):
         self.data_dir = data_dir
         self.batch_size = batch_size
         self.num_workers = num_workers
+        self.task = task
         self.mode = mode
         assert mode in ["static", "sequential"]
+        self.task_mapping = {
+            "au": "AU_Detection_Challenge",
+            "exp": "EXPR_Classification_Challenge",
+            "va": "VA_Estimation_Challenge",
+        }
 
     def setup(self, stage: Optional[str] = None) -> None:
         # Declare an augmentation pipeline
@@ -149,21 +210,50 @@ class AffWildDataModule(pl.LightningDataModule):
         )
 
         if self.mode == "static":
+            # data_dir, task, csv_path=None, transform=None
             DataModule = Static_AffWildDataset
         else:
             raise
 
         if stage in ["fit", "validate"]:
-            self.train_ds = DataModule(
-                self.data_dir,
-                os.path.join(self.data_dir, "mtl_train_anno.csv"),
-                transform=self.train_transform,
-            )
-            self.val_ds = DataModule(
-                self.data_dir,
-                os.path.join(self.data_dir, "mtl_validation_anno.csv"),
-                transform=self.val_test_transform,
-            )
+            if self.task == "mtl":
+                self.train_ds = DataModule(
+                    data_dir=self.data_dir,
+                    task=self.task,
+                    csv_path=os.path.join(self.data_dir, "mtl_train_anno.csv"),
+                    transform=self.train_transform,
+                )
+                self.val_ds = DataModule(
+                    data_dir=self.data_dir,
+                    task=self.task,
+                    csv_path=os.path.join(self.data_dir, "mtl_validation_anno.csv"),
+                    transform=self.val_test_transform,
+                )
+            else:
+                self.train_ds = DataModule(
+                    data_dir=os.path.join(
+                        *[
+                            self.data_dir,
+                            "saved_labels",
+                            self.task_mapping[self.task],
+                            "Train_Set",
+                        ]
+                    ),
+                    task=self.task,
+                    transform=self.train_transform,
+                )
+                self.val_ds = DataModule(
+                    data_dir=os.path.join(
+                        *[
+                            self.data_dir,
+                            "saved_labels",
+                            self.task_mapping[self.task],
+                            "Validation_Set",
+                        ]
+                    ),
+                    task=self.task,
+                    transform=self.val_test_transform,
+                )
         elif stage in ["predict"]:
             raise
         else:  #  'test', or 'predict'
