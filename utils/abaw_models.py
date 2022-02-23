@@ -16,7 +16,7 @@ class ArcFaceIRes50(nn.Module):
         super().__init__()
         self.backbone = iresnet50()
         if ckpt is not None:
-            state_dict = torch.load(ckpt)
+            state_dict = torch.load(ckpt, map_location='cpu')
             print(self.backbone.load_state_dict(state_dict))
         self.out_features = 512
 
@@ -110,6 +110,21 @@ class EXP_ClassifierMLP(nn.Module):
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.Linear(in_features=in_features // 2, out_features=8),
+        )
+
+    def forward(self, x):
+        return self.fc(x)
+
+class AU_ClassifierMLP(nn.Module):
+    def __init__(self, in_features=512, dropout=0.2):
+        super(AU_ClassifierMLP, self).__init__()
+        self.in_features = in_features
+        self.dropout = dropout
+        self.fc = nn.Sequential(
+            nn.Linear(in_features=in_features, out_features=in_features // 2),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(in_features=in_features // 2, out_features=12),
         )
 
     def forward(self, x):

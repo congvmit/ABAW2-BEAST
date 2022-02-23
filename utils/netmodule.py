@@ -7,8 +7,35 @@ import numpy as np
 
 from torch.nn import CrossEntropyLoss
 from sklearn.metrics import f1_score
-from .abaw_models import EXP_ClassifierMLP, ArcFaceIRes50
+from .abaw_models import EXP_ClassifierMLP, ArcFaceIRes50, AU_ClassifierMLP
+from .backbone.FECNet import FECNet
 from .metrics import EXP_metric
+
+
+from .abaw_models import MTL_ClassifierMLP
+from .metrics import AU_metric
+from .losses import MaskedBCEWithLogitsLoss, MaskedCrossEntropyLoss, MaskedMSELoss
+
+def get_backbone(backbone_name):
+    if backbone_name == "arcface_ires50":
+        backbone = ArcFaceIRes50()
+    elif backbone_name == "fecnet":
+        backbone = FECNet(pretrained=True)
+    else:
+        raise
+    return backbone
+
+def get_classifier(classifier_name, task, args):
+    if classifier_name == "mlp":
+        if task == 'au':
+            classifier = AU_ClassifierMLP(dropout=args.dropout)
+        elif task == 'exp':
+            classifier = EXP_ClassifierMLP(dropout=args.dropout)
+        elif task == 'mtl':
+            classifier = MTL_ClassifierMLP(dropout=args.dropout)
+    else:
+        raise
+    return classifier
 
 # Basemodel
 class BaseStaticLightningNet(pl.LightningModule):
@@ -49,22 +76,9 @@ class EXP_StaticLightningNet(BaseStaticLightningNet):
     def __init__(self, args):
         super().__init__()
         self.args = args
-        if args.backbone_name == "arcface_ires50":
-            self.backbone = ArcFaceIRes50()
-        else:
-            raise
-
-        if args.classifier_name == "mlp":
-            self.classifier = EXP_ClassifierMLP(
-                in_features=self.backbone.out_features, dropout=args.dropout
-            )
-        else:
-            raise
+        self.backbone = get_backbone(args.backbone_name)
+        self.classifier = get_classifier(args.classifier_name, args.task, args)
         self.loss = CrossEntropyLoss()
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.backbone(x)
-        return self.classifier(x)
 
     def training_step(self, batch, batch_idx: int) -> torch.Tensor:
         img_arr = batch["img_arr"]
@@ -72,8 +86,20 @@ class EXP_StaticLightningNet(BaseStaticLightningNet):
         batch_size = len(batch["labels"])
 
         y_exp = self(img_arr)
-
         loss = self.loss(input=y_exp, target=exp)
+
+        y_exp = torch.softmax(y_exp, dim=1)
+        y_exp = y_exp.argmax(dim=1)
+        perf_exp = EXP_metric(y_exp.detach().cpu().numpy(), exp.detach().cpu().numpy())
+        self.log(
+            "perf_exp",
+            perf_exp,
+            prog_bar=True,
+            on_step=False,
+            on_epoch=True,
+            batch_size=batch_size,
+        )
+
         self.log(
             "train_loss", loss, on_step=False, on_epoch=True, batch_size=batch_size
         )
@@ -85,12 +111,10 @@ class EXP_StaticLightningNet(BaseStaticLightningNet):
         batch_size = len(batch["labels"])
 
         y_exp = self(img_arr)
-
         loss = self.loss(input=y_exp, target=exp)
 
         y_exp = torch.softmax(y_exp, dim=1)
         y_exp = y_exp.argmax(dim=1)
-
         self.log(
             "val_loss",
             loss,
@@ -120,38 +144,87 @@ class EXP_StaticLightningNet(BaseStaticLightningNet):
 
 
 
+# Action Unit Classification
+from torch.nn import BCEWithLogitsLoss
+from .metrics import AU_metric
+from .abaw_models import AU_ClassifierMLP
+
+class AU_StaticLightningNet(BaseStaticLightningNet):
+    def __init__(self, args):
+        super().__init__()
+        self.args = args
+        self.backbone = get_backbone(args.backbone_name)
+        self.classifier = get_classifier(args.classifier_name, args.task, args)
+        self.loss = BCEWithLogitsLoss()   
+
+    def training_step(self, batch, batch_idx: int) -> torch.Tensor:
+        img_arr = batch["img_arr"]
+        au = batch["labels"]
+        batch_size = len(batch["labels"])
+
+        y_au = self(img_arr)
+
+        loss = self.loss(input=y_au, target=au)
+        y_au = torch.sigmoid(y_au)
+        y_au[y_au >= 0.5] = 1.0
+        y_au[y_au < 0.5] = 0.0
+        perf_au = AU_metric(y_au.detach().cpu().numpy(), au.detach().cpu().numpy())
+        self.log(
+            "perf_au",
+            perf_au,
+            prog_bar=True,
+            on_step=False,
+            on_epoch=True,
+            batch_size=batch_size,
+        )
+
+        self.log(
+            "train_loss", loss, on_step=False, on_epoch=True, batch_size=batch_size
+        )
+        return loss
+
+    def validation_step(self, batch, batch_idx: int) -> None:
+        img_arr = batch["img_arr"]
+        au = batch["labels"]
+        batch_size = len(batch["labels"])
+
+        y_au = self(img_arr)
+
+        loss = self.loss(input=y_au, target=au)
+        y_au = torch.sigmoid(y_au)
+        y_au[y_au >= 0.5] = 1.0
+        y_au[y_au < 0.5] = 0.0
+        self.log(
+            "val_loss",
+            loss,
+            prog_bar=True,
+            on_step=False,
+            on_epoch=True,
+            batch_size=batch_size,
+        )
+
+        return {
+            "val_loss": loss.detach(),
+            "y_true_au": au,
+            "y_pred_au": y_au,
+        }
+
+    def validation_epoch_end(self, outputs):
+        val_loss = (
+            torch.stack([out["val_loss"] for out in outputs]).mean().cpu().numpy()
+        )
+        y_true_au = torch.cat([out["y_true_au"] for out in outputs]).cpu().numpy()
+        y_pred_au = torch.cat([out["y_pred_au"] for out in outputs]).cpu().numpy()
+
+        perf_au = AU_metric(y_pred_au, y_true_au)
+        self.log("val_perf_au", perf_au, prog_bar=True, on_step=False, on_epoch=True)
 
 # Multi-task
-# def compute_f1_score_au(input, target):
-#     N, label_size = input.shape
-#     f1s = []
-#     for i in range(label_size):
-#         f1 = f1_score(target[:, i], input[:, i])
-#         f1s.append(f1)
-#     return np.mean(f1s)
-
-
-
-from .abaw_models import MTL_ClassifierMLP
-from .metrics import AU_metric
-from .losses import MaskedBCEWithLogitsLoss, MaskedCrossEntropyLoss, MaskedMSELoss
-
 class MTL_StaticLightningNet(BaseStaticLightningNet):
     def __init__(self, args):
         super().__init__()
-        self.backbone_name = args.backbone_name
-        self.classifier_name = args.classifier_name
-        if self.backbone_name == "arcface_ires50":
-            self.backbone = ArcFaceIRes50()
-        else:
-            raise
-
-        if self.classifier_name == "mlp":
-            self.classifier = MTL_ClassifierMLP(
-                in_features=self.backbone.out_features, dropout=args.dropout
-            )
-        else:
-            raise
+        self.backbone = get_backbone(args.backbone_name)
+        self.classifier = get_classifier(args.classifier_name, args.task, args)
         self.loss_mse = MaskedMSELoss()
         self.loss_ce = MaskedCrossEntropyLoss()
         self.loss_bce = MaskedBCEWithLogitsLoss()

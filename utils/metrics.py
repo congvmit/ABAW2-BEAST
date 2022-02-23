@@ -6,6 +6,7 @@ import os
 import pandas as pd
 
 def print_metrics(y_true, y_pred):
+    raise 
     LABEL_MAPPING = {"moderate - 0": 0, "not depression - 1": 1, "severe - 2": 2}
     col, _ = os.get_terminal_size()
     col = int(col * 0.85)
@@ -47,7 +48,7 @@ def AU_metric(input, target):
     for i in range(label_size):
         f1 = f1_score(target[:, i], input[:, i])
         f1s.append(f1)
-    return np.mean(f1s), f1s
+    return np.mean(f1s)
 
 
 def CCC_score(x, y):

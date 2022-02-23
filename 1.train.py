@@ -6,9 +6,10 @@ from pytorch_lightning.callbacks import BackboneFinetuning
 from packaging import version
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
+from pytorch_lightning.loggers import TensorBoardLogger
 
 # from utils.mtl_netmodule import MTL_StaticLightningNet
-from utils.netmodule import EXP_StaticLightningNet, MTL_StaticLightningNet
+from utils.netmodule import EXP_StaticLightningNet, MTL_StaticLightningNet, AU_StaticLightningNet
 
 from utils.datamodule import AffWildDataModule
 
@@ -34,7 +35,7 @@ class CustomBackboneFinetuning(BackboneFinetuning):
         """Called when the epoch begins."""
         if epoch == self.unfreeze_backbone_at_epoch:
             current_lr = optimizer.param_groups[0]["lr"]
-            initial_backbone_lr = current_lr
+            initial_backbone_lr = current_lr/10
             self.previous_backbone_lr = initial_backbone_lr
 
             self.unfreeze_and_add_param_group(
@@ -52,7 +53,7 @@ class CustomBackboneFinetuning(BackboneFinetuning):
 
         elif epoch > self.unfreeze_backbone_at_epoch:
             current_lr = optimizer.param_groups[0]["lr"]
-            next_current_backbone_lr = current_lr
+            next_current_backbone_lr = current_lr/10
             optimizer.param_groups[-1]["lr"] = next_current_backbone_lr
             self.previous_backbone_lr = next_current_backbone_lr
             if self.verbose:
@@ -82,6 +83,12 @@ class Experiment:
 
                 monitor_metric = 'val_perf_exp'
                 optimal_mode = 'max'
+
+            elif self.args.task == "au":
+                print("> Load model for AU task")
+                model = AU_StaticLightningNet(self.args)
+                monitor_metric = 'val_perf_au'
+                optimal_mode = 'max'
             else:
                 raise
         else:
@@ -96,10 +103,11 @@ class Experiment:
 
         trainer = pl.Trainer(
             accelerator="gpu",
-            logger=True,
+            logger=TensorBoardLogger(save_dir='./logging', 
+                                     name=f'{self.args.task}_{self.args.backbone_name}_{self.args.classifier_name}_{self.args.optimizer}_{self.args.loss}'),
             max_epochs=self.args.num_epochs,
-            auto_select_gpus=True,
-            gpus=1,
+            # auto_select_gpus=True,
+            gpus=[self.args.gpu],
             # strategy='dp',
             # gpus=1 if torch.cuda.is_available() else None,
             callbacks=[
@@ -123,6 +131,7 @@ class Experiment:
         # print("val_loss:", trainer.callback_metrics["val_loss"].item())
 
     def optuna_objective(self, trial: optuna.trial.Trial) -> float:
+        raise
         # We optimize the number of layers, hidden units in each layer and dropouts.
         # n_layers = trial.suggest_int("n_layers", 1, 3)
         # dropout = trial.suggest_float("dropout", 0.2, 0.5)
@@ -154,8 +163,8 @@ class Experiment:
             accelerator="gpu",
             logger=True,
             max_epochs=self.args.num_epochs,
-            auto_select_gpus=True,
-            gpus=1,
+            # auto_select_gpus=True,
+            gpus=str(self.args.gpu),
             # strategy='dp',
             # gpus=1 if torch.cuda.is_available() else None,
             callbacks=[
@@ -218,7 +227,9 @@ def get_args():
 
     parser.add_argument("-t", "--timeout", type=int, default=600)
     parser.add_argument("--debug-dataset", action="store_true")
-    parser.add_argument("-m", "--manual", action="store_true")
+    parser.add_argument("-a", "--auto", action="store_true")
+    
+    parser.add_argument("-g", "--gpu", type=int, default=0)
 
     # DATA_DIR = "/home/lab/congvm/Affwild2"
     parser.add_argument("--data-dir", type=str, default="/home/lab/congvm/Affwild2")
@@ -232,7 +243,7 @@ def get_args():
         "--backbone-name",
         type=str,
         default="arcface_ires50",
-        choices=["arcface_ires50"],
+        choices=["arcface_ires50", 'fecnet'],
     )
     parser.add_argument(
         "--classifier-name",
@@ -247,9 +258,10 @@ def get_args():
         default=0.2,
     )
 
-    parser.add_argument("--unfreeze-epoch", type=int, default=2)
+    parser.add_argument("--unfreeze-epoch", type=int, default=0)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--optimizer", type=str, default="sgd", choices=['adam', 'sgd'])
+    parser.add_argument("--loss", type=str, default="default", choices=['default', 'focal'])
     parser.add_argument("--scheduler", type=str, default="cosine", choices=['cosine', 'constant'])
     parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--weight-decay", type=float, default=0.001)
@@ -275,7 +287,7 @@ if __name__ == "__main__":
         debug_dataset(args)
 
     experiment = Experiment(args)
-    if not args.manual:
+    if args.auto:
         pruner: optuna.pruners.BasePruner = (
             optuna.pruners.MedianPruner()
             if args.pruning

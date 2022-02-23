@@ -123,9 +123,9 @@ class Static_AffWildDataset(data.Dataset):
         if self.task == "exp":
             labels = data["labels_ex"]
         elif self.task == "au":
-            labels = data["labels_au"]
+            labels = np.array(eval(data["labels_au"]), dtype=np.float32)
         elif self.task == "va":
-            labels = data["labels_va"]
+            labels = np.array(data["labels_va"], dtype=np.float32)
         labels = torch.tensor(labels)
         return {"img_arr": img_arr, "labels": labels}
 
@@ -193,7 +193,7 @@ class AffWildDataModule(pl.LightningDataModule):
             [
                 A.Resize(height=112, width=112),
                 A.HorizontalFlip(p=0.5),
-                A.RandomBrightnessContrast(p=0.2),
+                # A.RandomBrightnessContrast(p=0.2),
                 A.ShiftScaleRotate(
                     shift_limit=0.05, scale_limit=0.05, rotate_limit=15, p=0.5
                 ),
