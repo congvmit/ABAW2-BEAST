@@ -59,6 +59,7 @@ class ArcFaceTransform(ImageOnlyTransform):
 
 from glob import glob
 from tqdm import tqdm
+import PIL
 
 
 class CSVReader(dict):
@@ -99,9 +100,12 @@ class Static_AffWildDataset(data.Dataset):
                 )
             self.df = CSVReader(self.df)
 
-    def _load_image(self, img_path):
-        img_arr = cv2.imread(img_path)
-        return cv2.cvtColor(img_arr, cv2.COLOR_BGR2RGB)
+    def _load_image(self, img_path, use_cv2=False):
+        if use_cv2:
+            img_arr = cv2.imread(img_path)
+            return cv2.cvtColor(img_arr, cv2.COLOR_BGR2RGB)
+        else:
+            return np.asarray(PIL.Image.open(img_path))
 
     def __len__(self):
         return len(self.df)
@@ -115,6 +119,12 @@ class Static_AffWildDataset(data.Dataset):
     def getitem(self, index):
         data = self.df.iloc(index)
         img_path = data["image_id"]
+
+        # To debug previous models
+        if "../data/cropped_aligned" in img_path:
+            img_path = img_path.replace(
+                "../data/cropped_aligned", "/mnt/DATA1/hung/ABAW/data/cropped_aligned"
+            )
         img_arr = self._load_image(img_path)
 
         if self.transform is not None:
@@ -122,14 +132,29 @@ class Static_AffWildDataset(data.Dataset):
             img_arr = np.array(img_arr, dtype=np.float32)
 
         if self.task == "exp":
-            labels = data["labels_ex"]
+            label = int(data["labels_ex"])
+            label = torch.tensor(label)
+            binary_label = 1.0 if label == 7 else 0.0
+            binary_label = torch.tensor(binary_label)
+            return {
+                "img_arr": img_arr,
+                "labels": label,
+                "img_path": img_path,
+                "binary_labels": binary_label,
+            }
+
         elif self.task == "au":
             labels = np.array(eval(data["labels_au"]), dtype=np.float32)
+            labels = torch.tensor(labels)
+            return {"img_arr": img_arr, "labels": labels, "img_path": img_path}
+
         elif self.task == "va":
             labels = np.array(data["labels_va"], dtype=np.float32)
-        
-        labels = torch.tensor(labels)
-        return {"img_arr": img_arr, "labels": labels}
+            labels = torch.tensor(labels)
+            return {"img_arr": img_arr, "labels": labels, "img_path": img_path}
+
+        else:
+            raise
 
     def getitem_mtl(self, index):
         # VideoID	FrameID	Valence	Arousal	Expression
@@ -143,7 +168,8 @@ class Static_AffWildDataset(data.Dataset):
         assert img_arr is not None
 
         if self.transform is not None:
-            img_arr = self.transform(image=img_arr)["image"]
+            # img_arr = self.transform(image=img_arr)["image"]
+            img_arr = self.transform(img_arr)
 
         # Valence, Arousal are in range of [-1, 1]
         valence = torch.tensor(float(data.Valence), dtype=torch.float32)
@@ -166,11 +192,24 @@ class Static_AffWildDataset(data.Dataset):
         }
 
 
-def get_transform(backbone_name):
-    image_size = 224 if backbone_name == 'fecnet' else 112
+from torchvision import transforms
 
-    if backbone_name == 'arcface_ires50':
-        print('> Get ArcFace transform funcs')
+# train_transform = transforms.Compose(
+#     [
+#         transforms.ToPILImage(),
+#         transforms.Resize(size=(112, 112)),
+#         transforms.RandomHorizontalFlip(),
+#         transforms.ToTensor(),
+#         transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
+#     ]
+# )
+
+
+def get_transform(backbone_name):
+    image_size = 224 if backbone_name == "fecnet" else 112
+
+    if backbone_name == "arcface_ires50":
+        print("> Get ArcFace transform funcs")
         train_transform = A.Compose(
             [
                 A.Resize(height=image_size, width=image_size),
@@ -186,8 +225,8 @@ def get_transform(backbone_name):
                 ToTensorV2(),
             ]
         )
-    elif backbone_name == 'fecnet':
-        print('> Get FecNet transform funcs')
+    elif backbone_name == "fecnet":
+        print("> Get FecNet transform funcs")
         train_transform = A.Compose(
             [
                 A.Resize(height=image_size, width=image_size),
@@ -202,11 +241,15 @@ def get_transform(backbone_name):
             ]
         )
     else:
-        print('> Get ImageNet transform funcs')
+        print("> Get ImageNet transform funcs")
         train_transform = A.Compose(
             [
                 A.Resize(height=image_size, width=image_size),
                 A.HorizontalFlip(p=0.5),
+                # A.RandomBrightnessContrast(p=0.2),
+                # A.ShiftScaleRotate(
+                #     shift_limit=0.05, scale_limit=0.05, rotate_limit=15, p=0.5
+                # ),
                 A.Normalize(
                     mean=(0.485, 0.456, 0.406),
                     std=(0.229, 0.224, 0.225),
@@ -228,7 +271,25 @@ def get_transform(backbone_name):
                 ToTensorV2(),
             ]
         )
+        # train_transform = transforms.Compose(
+        #     [
+        #         transforms.ToPILImage(),
+        #         transforms.Resize(size=(image_size, image_size)),
+        #         transforms.RandomHorizontalFlip(),
+        #         transforms.ToTensor(),
+        #         transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
+        #     ]
+        # )
+        # val_test_transform = transforms.Compose(
+        #     [
+        #         transforms.ToPILImage(),
+        #         transforms.Resize(size=(image_size, image_size)),
+        #         transforms.ToTensor(),
+        #         transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
+        #     ]
+        # )
     return train_transform, val_test_transform
+
 
 class AffWildDataModule(pl.LightningDataModule):
     def __init__(
@@ -257,7 +318,9 @@ class AffWildDataModule(pl.LightningDataModule):
     def setup(self, stage: Optional[str] = None) -> None:
         # Declare an augmentation pipeline
 
-        self.train_transform, self.val_test_transform = get_transform(self.backbone_name)
+        self.train_transform, self.val_test_transform = get_transform(
+            self.backbone_name
+        )
         if self.mode == "static":
             DataModule = Static_AffWildDataset
         else:

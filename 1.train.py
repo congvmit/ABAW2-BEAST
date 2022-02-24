@@ -9,7 +9,11 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
 
 # from utils.mtl_netmodule import MTL_StaticLightningNet
-from utils.netmodule import EXP_StaticLightningNet, MTL_StaticLightningNet, AU_StaticLightningNet
+from utils.netmodule import (
+    EXP_StaticLightningNet,
+    MTL_StaticLightningNet,
+    AU_StaticLightningNet,
+)
 
 from utils.datamodule import AffWildDataModule
 
@@ -22,7 +26,7 @@ if version.parse(pl.__version__) < version.parse("1.0.2"):
 
 class CustomBackboneFinetuning(BackboneFinetuning):
     def freeze_before_training(self, pl_module):
-        print('> BackboneFinetuning: Freeze backbone')
+        print("> BackboneFinetuning: Freeze backbone")
         self.freeze(pl_module.backbone)
 
     def finetune_function(
@@ -35,32 +39,16 @@ class CustomBackboneFinetuning(BackboneFinetuning):
         """Called when the epoch begins."""
         if epoch == self.unfreeze_backbone_at_epoch:
             current_lr = optimizer.param_groups[0]["lr"]
-            initial_backbone_lr = current_lr/10
-            self.previous_backbone_lr = initial_backbone_lr
-
-            self.unfreeze_and_add_param_group(
-                pl_module.backbone,
-                optimizer,
-                initial_backbone_lr,
-                train_bn=self.train_bn,
-                initial_denom_lr=self.initial_denom_lr,
+            BackboneFinetuning.make_trainable(
+                modules=pl_module.backbone.backbone.layer4
             )
             if self.verbose:
-                print(
-                    f"Current lr: {round(current_lr, self.rounding)}, "
-                    f"Backbone lr: {round(initial_backbone_lr, self.rounding)}"
-                )
+                print(f"Current lr: {round(current_lr, self.rounding)}")
 
         elif epoch > self.unfreeze_backbone_at_epoch:
             current_lr = optimizer.param_groups[0]["lr"]
-            next_current_backbone_lr = current_lr/10
-            optimizer.param_groups[-1]["lr"] = next_current_backbone_lr
-            self.previous_backbone_lr = next_current_backbone_lr
             if self.verbose:
-                print(
-                    f"Current lr: {round(current_lr, self.rounding)}, "
-                    f"Backbone lr: {round(next_current_backbone_lr, self.rounding)}"
-                )
+                print(f"Current lr: {round(current_lr, self.rounding)}")
 
 
 class Experiment:
@@ -75,20 +63,20 @@ class Experiment:
                 print("> Load model for MTL task")
                 model = MTL_StaticLightningNet(self.args)
 
-                monitor_metric = 'val_loss'
-                optimal_mode = 'min'
+                monitor_metric = "val_loss"
+                optimal_mode = "min"
             elif self.args.task == "exp":
                 print("> Load model for EXP task")
                 model = EXP_StaticLightningNet(self.args)
 
-                monitor_metric = 'val_perf_exp'
-                optimal_mode = 'max'
+                monitor_metric = "val_perf_exp"
+                optimal_mode = "max"
 
             elif self.args.task == "au":
                 print("> Load model for AU task")
                 model = AU_StaticLightningNet(self.args)
-                monitor_metric = 'val_perf_au'
-                optimal_mode = 'max'
+                monitor_metric = "val_perf_au"
+                optimal_mode = "max"
             else:
                 raise
         else:
@@ -102,10 +90,13 @@ class Experiment:
             task=self.args.task,
         )
 
+        # DEBUG
         trainer = pl.Trainer(
             accelerator="gpu",
-            logger=TensorBoardLogger(save_dir='./logging', 
-                                     name=f'{self.args.task}_{self.args.backbone_name}_{self.args.classifier_name}_{self.args.optimizer}_{self.args.loss}'),
+            logger=TensorBoardLogger(
+                save_dir="./logging",
+                name=f"{self.args.task}_{self.args.backbone_name}_{self.args.classifier_name}_{self.args.optimizer}_{self.args.loss}",
+            ),
             max_epochs=self.args.num_epochs,
             # auto_select_gpus=True,
             gpus=[self.args.gpu],
@@ -229,7 +220,7 @@ def get_args():
     parser.add_argument("-t", "--timeout", type=int, default=600)
     parser.add_argument("--debug-dataset", action="store_true")
     parser.add_argument("-a", "--auto", action="store_true")
-    
+
     parser.add_argument("-g", "--gpu", type=int, default=0)
 
     # DATA_DIR = "/home/lab/congvm/Affwild2"
@@ -244,7 +235,7 @@ def get_args():
         "--backbone-name",
         type=str,
         default="arcface_ires50",
-        choices=["arcface_ires50", 'fecnet', 'resnet50', 'vggresnet50'],
+        choices=["arcface_ires50", "fecnet", "resnet50", "vggresnet50"],
     )
     parser.add_argument(
         "--classifier-name",
@@ -261,12 +252,15 @@ def get_args():
 
     parser.add_argument("--unfreeze-epoch", type=int, default=0)
     parser.add_argument("--batch-size", type=int, default=32)
-    parser.add_argument("--optimizer", type=str, default="sgd", choices=['adam', 'sgd'])
-    parser.add_argument("--loss", type=str, default="default", choices=['default', 'focal'])
-    parser.add_argument("--scheduler", type=str, default="cosine", choices=['cosine', 'constant'])
+    parser.add_argument("--optimizer", type=str, default="sgd", choices=["adam", "sgd"])
+    parser.add_argument(
+        "--loss", type=str, default="default", choices=["default", "focal"]
+    )
+    parser.add_argument(
+        "--scheduler", type=str, default="cosine", choices=["cosine", "constant"]
+    )
     parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--weight-decay", type=float, default=0.001)
-    
 
     parser.add_argument(
         "--mode", type=str, default="static", choices=["static", "sequential"]

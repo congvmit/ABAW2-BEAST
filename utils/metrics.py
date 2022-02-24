@@ -5,8 +5,9 @@ from sklearn.metrics import classification_report, confusion_matrix
 import os
 import pandas as pd
 
+
 def print_metrics(y_true, y_pred):
-    raise 
+    raise
     LABEL_MAPPING = {"moderate - 0": 0, "not depression - 1": 1, "severe - 2": 2}
     col, _ = os.get_terminal_size()
     col = int(col * 0.85)
@@ -37,7 +38,11 @@ def print_metrics(y_true, y_pred):
 def EXP_metric(input, target):
     """Compute F1 Score for AU"""
     return f1_score(
-        input, target, labels=[0, 1, 2, 3, 4, 5, 6, 7, 8], average="macro"
+        input,
+        target,
+        labels=[0, 1, 2, 3, 4, 5, 6, 7, 8],
+        average="macro",
+        zero_division=0,
     )
 
 
@@ -67,5 +72,3 @@ def CCC_score(x, y):
 def VA_metric(input, target):
     ccc = [CCC_score(input[:, 0], target[:, 0]), CCC_score(input[:, 1], target[:, 1])]
     return np.mean(ccc)
-
-

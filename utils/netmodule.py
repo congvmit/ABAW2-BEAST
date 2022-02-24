@@ -4,17 +4,16 @@ from torch import nn
 from torch import optim
 import numpy as np
 
-
 from torch.nn import CrossEntropyLoss
 from sklearn.metrics import f1_score
 from .abaw_models import EXP_ClassifierMLP, AU_ClassifierMLP, MTL_ClassifierMLP
 from .backbone.FECNet import FECNet
 from .metrics import EXP_metric
 
-
-from .abaw_models import VGGFaceRes50, ArcFaceIRes50
+from .abaw_models import VGGFaceRes50, ArcFaceIRes50, ResNet50
 from .metrics import AU_metric
 from .losses import MaskedBCEWithLogitsLoss, MaskedCrossEntropyLoss, MaskedMSELoss
+
 
 def get_backbone(backbone_name):
     if backbone_name == "arcface_ires50":
@@ -23,51 +22,67 @@ def get_backbone(backbone_name):
         backbone = FECNet(pretrained=True)
     elif backbone_name == "vggresnet50":
         backbone = VGGFaceRes50()
+    elif backbone_name == "resnet50":
+        backbone = ResNet50()
     else:
         raise
     return backbone
 
+
 def get_classifier(classifier_name, task, out_features, args):
     if classifier_name == "mlp":
-        if task == 'au':
-            classifier = AU_ClassifierMLP(in_features=out_features, dropout=args.dropout)
-        elif task == 'exp':
-            classifier = EXP_ClassifierMLP(in_features=out_features, dropout=args.dropout)
-        elif task == 'mtl':
-            classifier = MTL_ClassifierMLP(in_features=out_features, dropout=args.dropout)
+        if task == "au":
+            classifier = AU_ClassifierMLP(
+                in_features=out_features, dropout=args.dropout
+            )
+        elif task == "exp":
+            classifier = EXP_ClassifierMLP(
+                in_features=out_features, dropout=args.dropout
+            )
+        elif task == "mtl":
+            classifier = MTL_ClassifierMLP(
+                in_features=out_features, dropout=args.dropout
+            )
     else:
         raise
     return classifier
 
+
 # Basemodel
 class BaseStaticLightningNet(pl.LightningModule):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # DEBUG
         x = self.backbone(x)
         return self.classifier(x)
 
     def configure_optimizers(self):
         if self.args.optimizer == "adam":
-            print('>  OPTIMIZER: Load ADAM')
-            optimizer= optim.Adam(
-                filter(lambda p: p.requires_grad, self.parameters()), lr=self.args.lr
+            print(">  OPTIMIZER: Load ADAM")
+            optimizer = optim.Adam(
+                params=filter(lambda p: p.requires_grad, self.parameters()),
+                lr=self.args.lr,
+                weight_decay=self.args.weight_decay,
             )
         elif self.args.optimizer == "sgd":
-            print('>  OPTIMIZER: Load SGD')
-            optimizer =  optim.SGD(
-                filter(lambda p: p.requires_grad, self.parameters()), lr=self.args.lr, weight_decay=self.args.weight_decay
+            print(">  OPTIMIZER: Load SGD")
+            optimizer = optim.SGD(
+                params=filter(lambda p: p.requires_grad, self.parameters()),
+                lr=self.args.lr,
+                weight_decay=self.args.weight_decay,
             )
         else:
             raise
-        
-        if self.args.scheduler == 'constant':
+
+        if self.args.scheduler == "constant":
             return optimizer
         else:
-            if self.args.scheduler == 'cosine':
-                print('>  SCHEDULER: Load CosineAnnealingLR')
+            if self.args.scheduler == "cosine":
+                print(">  SCHEDULER: Load CosineAnnealingLR")
                 from torch.optim.lr_scheduler import CosineAnnealingLR
-                scheduler = CosineAnnealingLR(optimizer, self.args.num_epochs, eta_min=1e-4, last_epoch=-1)
-            elif self.args.scheduler == 'warmuplinear':
+
+                scheduler = CosineAnnealingLR(
+                    optimizer, self.args.num_epochs, eta_min=1e-4, last_epoch=-1
+                )
+            elif self.args.scheduler == "warmuplinear":
                 pass
             else:
                 raise
@@ -80,7 +95,9 @@ class EXP_StaticLightningNet(BaseStaticLightningNet):
         super().__init__()
         self.args = args
         self.backbone = get_backbone(args.backbone_name)
-        self.classifier = get_classifier(args.classifier_name, args.task, self.backbone.out_features, args)
+        self.classifier = get_classifier(
+            args.classifier_name, args.task, self.backbone.out_features, args
+        )
         self.loss = CrossEntropyLoss()
 
     def training_step(self, batch, batch_idx: int) -> torch.Tensor:
@@ -104,7 +121,12 @@ class EXP_StaticLightningNet(BaseStaticLightningNet):
         )
 
         self.log(
-            "train_loss", loss, on_step=False, on_epoch=True, batch_size=batch_size
+            "train_loss",
+            loss,
+            on_step=False,
+            prog_bar=True,
+            on_epoch=True,
+            batch_size=batch_size,
         )
         return loss
 
@@ -146,19 +168,21 @@ class EXP_StaticLightningNet(BaseStaticLightningNet):
         self.log("val_perf_exp", perf_exp, prog_bar=True, on_step=False, on_epoch=True)
 
 
-
 # Action Unit Classification
 from torch.nn import BCEWithLogitsLoss
 from .metrics import AU_metric
 from .abaw_models import AU_ClassifierMLP
+
 
 class AU_StaticLightningNet(BaseStaticLightningNet):
     def __init__(self, args):
         super().__init__()
         self.args = args
         self.backbone = get_backbone(args.backbone_name)
-        self.classifier = get_classifier(args.classifier_name, args.task, self.backbone.out_features, args)
-        self.loss = BCEWithLogitsLoss()   
+        self.classifier = get_classifier(
+            args.classifier_name, args.task, self.backbone.out_features, args
+        )
+        self.loss = BCEWithLogitsLoss()
 
     def training_step(self, batch, batch_idx: int) -> torch.Tensor:
         img_arr = batch["img_arr"]
@@ -222,12 +246,15 @@ class AU_StaticLightningNet(BaseStaticLightningNet):
         perf_au = AU_metric(y_pred_au, y_true_au)
         self.log("val_perf_au", perf_au, prog_bar=True, on_step=False, on_epoch=True)
 
+
 # Multi-task
 class MTL_StaticLightningNet(BaseStaticLightningNet):
     def __init__(self, args):
         super().__init__()
         self.backbone = get_backbone(args.backbone_name)
-        self.classifier = get_classifier(args.classifier_name, args.task, self.backbone.out_features, args)
+        self.classifier = get_classifier(
+            args.classifier_name, args.task, self.backbone.out_features, args
+        )
         self.loss_mse = MaskedMSELoss()
         self.loss_ce = MaskedCrossEntropyLoss()
         self.loss_bce = MaskedBCEWithLogitsLoss()

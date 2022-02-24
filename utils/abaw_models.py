@@ -7,10 +7,35 @@ import torch.nn.functional as F
 from numpy.linalg import norm as l2norm
 from . import backbone
 
+
 def normed_embedding(embedding):
     return embedding / l2norm(embedding)
 
+
 import pickle
+
+
+# ===============================================================================
+# **Backbone Layer**
+# ===============================================================================
+
+
+class ResNet50(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.backbone = backbone.resnet.resnet50()
+        pretrained = "ckpts/resnet50-0676ba61.pth"
+        state_dict = torch.load(pretrained, map_location="cpu")
+        state_dict_ = {}
+        for k, v in state_dict.items():
+            if "fc" not in k:
+                state_dict_[k] = v
+        self.backbone.load_state_dict(state_dict_, strict=True)
+        self.out_features = 2048
+
+    def forward(self, x):
+        return self.backbone(x)
+
 
 class VGGFaceRes50(nn.Module):
     def __init__(self) -> None:
@@ -19,20 +44,24 @@ class VGGFaceRes50(nn.Module):
         pretrained_vggface2 = "ckpts/resnet50_ft_weight.pkl"
         with open(pretrained_vggface2, "rb") as f:
             pretrained_data = pickle.load(f)
+
+        pretrained_data_ = {}
         for k, v in pretrained_data.items():
-            pretrained_data[k] = v
-        self.backbone.load_state_dict(pretrained_data, strict=True)
+            if "fc" not in k:
+                pretrained_data_[k] = torch.tensor(v)
+        self.backbone.load_state_dict(pretrained_data_, strict=True)
         self.out_features = 2048
-    
+
     def forward(self, x):
         return self.backbone(x)
-        
+
+
 class ArcFaceIRes50(nn.Module):
     def __init__(self, ckpt="ckpts/glint360k_cosface_r50_fp16_0.1_backbone.pth"):
         super().__init__()
         self.backbone = iresnet50()
         if ckpt is not None:
-            state_dict = torch.load(ckpt, map_location='cpu')
+            state_dict = torch.load(ckpt, map_location="cpu")
             print(self.backbone.load_state_dict(state_dict))
         self.out_features = 512
 
@@ -47,6 +76,9 @@ class ArcFaceIRes50(nn.Module):
         return emb
 
 
+# ===============================================================================
+# **Classification Layer**
+# ===============================================================================
 class MTL_ClassifierGAP(nn.Module):
     def __init__(self, in_features=512):
         super(MTL_ClassifierGAP, self).__init__()
@@ -117,7 +149,7 @@ class MTL_ClassifierMLP(nn.Module):
 
 
 class EXP_ClassifierMLP(nn.Module):
-    def __init__(self, in_features=512, dropout=0.2):
+    def __init__(self, in_features, dropout=0.2):
         super(EXP_ClassifierMLP, self).__init__()
         self.in_features = in_features
         self.dropout = dropout
@@ -130,6 +162,7 @@ class EXP_ClassifierMLP(nn.Module):
 
     def forward(self, x):
         return self.fc(x)
+
 
 class AU_ClassifierMLP(nn.Module):
     def __init__(self, in_features=512, dropout=0.2):

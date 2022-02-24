@@ -1,5 +1,6 @@
 import glob
 import os
+from re import M
 
 import numpy as np
 import pandas as pd
@@ -46,13 +47,13 @@ def take_images(data_file_name):
 
 def creat_df_video(annot_txt_file, data_file_name, path_save, type_partition):
     images_dir, number_id = take_images(data_file_name)
-
     df = pd.DataFrame(images_dir, columns=["image_id"])
 
     if type_partition == "EXPR_Classification_Challenge":
         labels = take_labels_ex(annot_txt_file)
+        assert len(number_id) == len(labels)
         df["labels_ex"] = labels[number_id - 1]
-        df = df[df["labels_ex"].isin(range(7))].reset_index(drop=True)
+        df = df[df["labels_ex"].isin(range(8))].reset_index(drop=True)
         df.to_csv(path_save, index=False)
 
     elif type_partition == "AU_Detection_Challenge":
@@ -102,9 +103,9 @@ if __name__ == "__main__":
     for set_data in ["Train_Set", "Validation_Set"]:
         for i, type_challenge in enumerate(
             [
-                "AU_Detection_Challenge",
                 "EXPR_Classification_Challenge",
-                "VA_Estimation_Challenge",
+                # "AU_Detection_Challenge",
+                # "VA_Estimation_Challenge",
             ]
         ):
             list_txt = glob.glob(
