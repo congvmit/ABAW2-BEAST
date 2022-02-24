@@ -31,13 +31,11 @@
 Code Structure (in `utils` folder):
 ```bash
 .
-├── abaw_models.py          # Define compo
-├── mtl_netmodule.py        # Define MTL train/val/test procedure
-├── au_netmodule.py         # Define AU train/val/test procedure
-├── exp_netmodule.py        # Define EXP train/val/test procedure
+├── abaw_models.py          # Define Task Modules
 ├── datamodule.py           # Dataset and Dataloader
-├── losses.py               # Define loss funtions
-├── metrics.py              # Define metric functions
+├── netmodule.py            # Network Modules
+├── losses.py               # Define Loss Funtions
+├── metrics.py              # Define Metric Functions
 ├── transforms.py
 └── utils.py
 └── schedulers.py
@@ -99,3 +97,9 @@ To download arcface checkpoints:
 
 Checkpoint to load:
 - Arcface Pretrained Model: ckpts/glint360k_cosface_r50_fp16_0.1_backbone.pth
+
+
+## References
+
+[1] Distract Your Attention: Multi-head Cross Attention Network for Facial Expression Recognition
+- DAN backbone
