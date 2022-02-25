@@ -10,7 +10,7 @@ from .abaw_models import EXP_ClassifierMLP, AU_ClassifierMLP, MTL_ClassifierMLP
 from .backbone.FECNet import FECNet
 from .metrics import EXP_metric
 
-from .abaw_models import VGGFaceRes50, ArcFaceIRes50, ResNet50
+from .abaw_models import VGGFaceRes50, ArcFaceIRes50, ResNet50, DANResnet18
 from .metrics import AU_metric
 from .losses import MaskedBCEWithLogitsLoss, MaskedCrossEntropyLoss, MaskedMSELoss
 
@@ -24,6 +24,8 @@ def get_backbone(backbone_name):
         backbone = VGGFaceRes50()
     elif backbone_name == "resnet50":
         backbone = ResNet50()
+    elif backbone_name == "dan":
+        backbone = DANResnet18()
     else:
         raise
     return backbone

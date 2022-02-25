@@ -39,9 +39,7 @@ class CustomBackboneFinetuning(BackboneFinetuning):
         """Called when the epoch begins."""
         if epoch == self.unfreeze_backbone_at_epoch:
             current_lr = optimizer.param_groups[0]["lr"]
-            BackboneFinetuning.make_trainable(
-                modules=pl_module.backbone.backbone.layer4
-            )
+            BackboneFinetuning.make_trainable(modules=pl_module.backbone)
             if self.verbose:
                 print(f"Current lr: {round(current_lr, self.rounding)}")
 
@@ -235,7 +233,7 @@ def get_args():
         "--backbone-name",
         type=str,
         default="arcface_ires50",
-        choices=["arcface_ires50", "fecnet", "resnet50", "vggresnet50"],
+        choices=["arcface_ires50", "fecnet", "resnet50", "vggresnet50", "dan"],
     )
     parser.add_argument(
         "--classifier-name",

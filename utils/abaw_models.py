@@ -1,7 +1,9 @@
+from hashlib import md5
 import torch
 import torch.nn as nn
 from thirdparty.insightface.recognition.arcface_torch.backbones import iresnet50
 import cv2
+import pickle
 import torch.nn.functional as F
 
 from numpy.linalg import norm as l2norm
@@ -12,12 +14,31 @@ def normed_embedding(embedding):
     return embedding / l2norm(embedding)
 
 
-import pickle
-
-
 # ===============================================================================
 # **Backbone Layer**
 # ===============================================================================
+from utils.backbone.dan import DAN
+import torch
+
+
+class DANResnet18(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.backbone = DAN()
+        # self.backbone = nn.Sequential(*list(self.backbone.children())[:-2])
+        path = "ckpts/affecnet7_epoch6_acc0.6569.pth"
+        ckpt = torch.load(path)
+        state_dict_ = {}
+        for k, v in ckpt["model_state_dict"].items():
+            if "fc" in k or "bn." in k:
+                continue
+            else:
+                state_dict_[k] = v
+        self.backbone.load_state_dict(state_dict_, strict=True)
+        self.out_features = 512
+
+    def forward(self, x):
+        return self.backbone(x)
 
 
 class ResNet50(nn.Module):

@@ -10,17 +10,16 @@ class DAN(nn.Module):
         super(DAN, self).__init__()
 
         resnet = models.resnet18(False)
-
-        # checkpoint = torch.load("./models/resnet18_msceleb.pth")
-        # resnet.load_state_dict(checkpoint["state_dict"], strict=True)
+        # state_dict = torch.load("ckpts/resnet18-5c106cde.pth")
+        # resnet.load_state_dict(state_dict, strict=True)
 
         self.features = nn.Sequential(*list(resnet.children())[:-2])
         self.num_head = num_head
         for i in range(num_head):
             setattr(self, "cat_head%d" % i, CrossAttentionHead())
-        self.sig = nn.Sigmoid()
-        self.fc = nn.Linear(512, num_class)
-        self.bn = nn.BatchNorm1d(num_class)
+        # self.sig = nn.Sigmoid()
+        # self.fc = nn.Linear(512, num_class)
+        # self.bn = nn.BatchNorm1d(num_class)
 
     def forward(self, x):
         x = self.features(x)
@@ -31,11 +30,10 @@ class DAN(nn.Module):
         heads = torch.stack(heads).permute([1, 0, 2])
         if heads.size(1) > 1:
             heads = F.log_softmax(heads, dim=1)
-
-        out = self.fc(heads.sum(dim=1))
-        out = self.bn(out)
-
-        return out, x, heads
+        heads = heads.sum(dim=1)
+        # out = self.fc(heads.sum(dim=1))
+        # out = self.bn(out)
+        return heads
 
 
 class CrossAttentionHead(nn.Module):

@@ -69,6 +69,7 @@ python 1.train.py
 - [ ] Add VA Metric
 - [ ] Add MTL Metric
 - [ ] Add CCC Loss
+- [x] Check EXP Labels
 
 ## Current Results
 
@@ -76,8 +77,6 @@ python 1.train.py
 | :------: | :------: | :----------------------: | :-------: | :------: | :-------: |
 | VGGFace  | Baseline |      0.31@0.17@0.24      |   0.23    |   0.39   |   0.86    |
 |          |          |                          |           |          |           |
-|          |          |                          |           |          |           |
-
 
 
 ## Deep Face Recognition Models
